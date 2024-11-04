@@ -20,3 +20,8 @@
   - svc pre-config
   - svc pre-hubert
   - svc train -t
+
+# Hướng dẫn cắt audio
+
+- ![alt text](image-2.png) sửa input ouput ở đây
+- ![alt text](image-3.png) chỉ số bắt đầu của file đầu ra (VD: output_026.wav). Anh ae xem dataset có bao nhiêu mẫu r thì sửa cho phù hợp để không bị trùng lặp tên file.
