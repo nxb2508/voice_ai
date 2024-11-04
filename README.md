@@ -23,5 +23,5 @@
 
 # Hướng dẫn cắt audio
 
-- ![alt text](image-2.png) sửa input ouput ở đây
-- ![alt text](image-3.png) chỉ số bắt đầu của file đầu ra (VD: output_026.wav). Anh ae xem dataset có bao nhiêu mẫu r thì sửa cho phù hợp để không bị trùng lặp tên file.
+- ![alt text](image-4.png) sửa 2 cái này. audio cần cắt cứ nhét hết vào file dataset_raw_raw.
+- Folder output thì trong dataset_raw hãy tạo 1 folder trên ca sĩ rồi cho output đã split vô đó
