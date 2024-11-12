@@ -29,9 +29,38 @@
 
 # Endpoints api
 - GET /models?category=?
+  - Input: 
+  - OutPut:
+    - id_model: int
+    - model_name: str
+    - model_path: str
+    - config_path: str
+    - cluster_model_path: str
+    - category :str
 - POST /text-to-speech/
+  - Input: text: str
+  - OutPut: output.wav 
 - POST /text-file-to-speech/
+  - Input: file .docx/.txt
+  - OutPut: output.wav
 - POST /text-file-to-speech-and-infer/
+  - Input : 
+    - file .docx/.txt
+    - model_id: int
+  - Output: output.wav
 - POST /text-to-speech-and-infer/
+  - Input: 
+    - text: str
+    - model_id: int
+  - Output: output.wav
 - POST /infer-audio/
+  - Input: 
+    - file audio.wav
+    - model_id: int
+  - Ouput: output.wav
 - POST /train-model/
+  - Input: 
+    - file audio.wav
+    - name: str
+    - f0_method: ["crepe", "crepe-tiny", "parselmouth", "dio", "harvest"] (chọn 1)
+  - OutPut: Tạm thời là "message": "Audio processing completed successfully!"
