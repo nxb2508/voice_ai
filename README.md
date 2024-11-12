@@ -3,7 +3,7 @@
 ## Bước 1: Cài đặt thư viện
 
 - cài theo fiel requirements.txt
-- cài xong thì mở cmd chạy 'svcg' nếu hiện ra giao diện ![alt text](image.png) là thành công
+- cài xong thì mở cmd chạy 'svcg' nếu hiện ra giao diện ![alt text](assets/images/image.png) là thành công
 
 ## Bước 2: Tải dataset
 
@@ -13,7 +13,7 @@
 ## Bước 3
 
 - Tìm kiếm folder thư viện so-vits-svc-fork mà mình cài ở máy ảo
-- cho folder dataset_raw vào trong đó như hình ![alt text](image-1.png)
+- cho folder dataset_raw vào trong đó như hình ![alt text](assets/images/image-1.png)
 - mở cmd tại đó luôn
 - chạy lần lượt 4 lệnh
   - svc pre-resample
@@ -23,5 +23,15 @@
 
 # Hướng dẫn cắt audio
 
-- ![alt text](image-4.png) sửa 2 cái này. audio cần cắt cứ nhét hết vào file dataset_raw_raw.
+- ![alt text](assets/images/image-4.png) sửa 2 cái này. audio cần cắt cứ nhét hết vào file dataset_raw_raw.
 - Folder output thì trong dataset_raw hãy tạo 1 folder trên ca sĩ rồi cho output đã split vô đó
+
+
+# Endpoints api
+- GET /models?category=?
+- POST /text-to-speech/
+- POST /text-file-to-speech/
+- POST /text-file-to-speech-and-infer/
+- POST /text-to-speech-and-infer/
+- POST /infer-audio/
+- POST /train-model/
