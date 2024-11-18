@@ -3,13 +3,21 @@
 - Sử dụng python 3.10.15
 
 ## Bước 1: Tạo môi trường ảo
+
+- Cho Ubuntu và kích hoạt
+
 ```bash
 python3.11 -m venv venv
-```
-- Kích hoạt môi trường ảo
-```bash
 source venv/bin/activate
 ```
+
+- Cho Window
+
+```bash
+py -3.11 -m venv venv
+venv\Scripts\activate
+```
+
 ## Bước 2: Cài đặt thư viện
 
 - cài thư viện pytorch và so-vits-svc
