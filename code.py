@@ -742,6 +742,7 @@ async def process_audio(
             "latest_model_path": latest_model_path_relative,
             "config_path": config_path_relative,
             "name": name,
+            "cluster_model_path": "None",
         }
 
     except Exception as e:
