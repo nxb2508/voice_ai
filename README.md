@@ -7,14 +7,14 @@
 - Cho Ubuntu và kích hoạt
 
 ```bash
-python3.11 -m venv venv
+python3.10 -m venv venv
 source venv/bin/activate
 ```
 
 - Cho Window
 
 ```bash
-py -3.11 -m venv venv
+py -3.10 -m venv venv
 venv\Scripts\activate
 ```
 
