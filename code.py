@@ -7,20 +7,16 @@ from fastapi import (
     Response,
     Depends,
     Query,
+    status,
 )
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 import tempfile
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 from so_vits_svc_fork.inference.main import infer
 import os
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.exc import NoResultFound
-from sqlalchemy.future import select
 import uuid
 from gtts import gTTS
 from docx import Document
@@ -40,33 +36,20 @@ import shutil
 import asyncio
 import aiofiles
 import uvicorn
+import re
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-# Kết nối tới cơ sở dữ liệu MySQL
-DATABASE_URL = "mysql+pymysql://root:g08022002@localhost/datn"  # Thay đổi username, password, và dbname của bạn
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+cred = credentials.Certificate("D:/DATN/APIkey.json")
+firebase_admin.initialize_app(cred)
+db_firestore = firestore.client()
 
 BASE_DIR = Path(__file__).resolve().parent
 section_storage_path = BASE_DIR / "files"
 train_model_path = BASE_DIR / "trainmodel"
 
-
-# Định nghĩa cơ sở dữ liệu
-Base = declarative_base()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-class Model(Base):
-    __tablename__ = "models"  # Tên bảng trong MySQL
-
-    id_model = Column(Integer, primary_key=True, index=True)
-    model_name = Column(String(100), index=True)
-    model_path = Column(String(200))
-    config_path = Column(String(200))
-    cluster_model_path = Column(String(200), nullable=True)
-    category = Column(String(200), nullable=True)
 
 
 # Tạo FastAPI app
@@ -86,7 +69,7 @@ app.add_middleware(
 
 # Định nghĩa schema cho phản hồi
 class ModelResponse(BaseModel):
-    id_model: int
+    id_model: str = None
     model_name: str
     model_path: str
     config_path: str
@@ -98,6 +81,14 @@ class ModelResponse(BaseModel):
         protected_namespaces = ()
 
 
+class ModelCreate(BaseModel):
+    model_name: str
+    model_path: str
+    config_path: str
+    cluster_model_path: str
+    category: str
+
+
 class TextToSpeechRequest(BaseModel):
     text: str
     locate: str = "vi"
@@ -106,16 +97,26 @@ class TextToSpeechRequest(BaseModel):
 class TextToSpeechAndInferRequest(BaseModel):
     text: str
     locate: str = "vi"
-    model_id: int
+    model_id: str
 
 
-# Tạo một phiên làm việc với cơ sở dữ liệu
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def get_latest_model_path(log_dir):
+    max_epoch = -1
+    model_path = None
+
+    # Duyệt qua tất cả các file trong thư mục log_dir
+    for filename in os.listdir(log_dir):
+        # Sử dụng regex để tìm file có dạng G_<sốepochs>.pth
+        match = re.match(r"G_(\d+)\.pth", filename)
+        if match:
+            epoch = int(match.group(1))
+            # Kiểm tra nếu số epochs của file hiện tại lớn hơn max_epoch
+            if epoch > max_epoch:
+                max_epoch = epoch
+                model_path = Path(log_dir) / filename
+
+    # Trả về đường dẫn chuẩn với dấu gạch chéo '/'
+    return str(model_path).replace("\\", "/") if model_path else None
 
 
 async def save_uploaded_file(uploaded_file, destination: Path):
@@ -254,78 +255,69 @@ def train(
     )
 
 
-# Route để lấy danh sách các mô hình từ MySQL với khả năng lọc theo category
 @app.get("/models", response_model=List[ModelResponse])
-async def get_models(
-    db: Session = Depends(get_db),
-    category: Optional[str] = Query(None, title="Category to filter"),
-):
-    if category:
-        # Lọc mô hình theo category
-        models = db.query(Model).filter(Model.category == category).all()
-    else:
-        # Lấy tất cả mô hình nếu không có filter
-        models = db.query(Model).all()
+async def get_models():
+    try:
+        models_ref = db_firestore.collection("models")
+        docs = models_ref.stream()
 
-    return models
+        models = []
+        for doc in docs:
+            data = doc.to_dict()
+            model = ModelResponse(
+                id_model=doc.id,
+                model_name=data["model_name"],
+                model_path=data["model_path"],
+                config_path=data["config_path"],
+                cluster_model_path=data.get("cluster_model_path", ""),
+                category=data.get("category", ""),
+            )
+            models.append(model)
+
+        return models
+    except Exception as e:
+        logger.error(f"Lỗi khi lấy models: {e}")
+        raise HTTPException(status_code=500, detail="Không thể lấy danh sách models.")
 
 
-@app.post("/models/", response_model=ModelResponse)
-async def create_model(
-    model_name: str = Form(...),
-    model_path: str = Form(...),
-    config_path: str = Form(...),
-    cluster_model_path: str = Form(None),
-    category: str = Form(...),
-    db: Session = Depends(get_db),
-):
-    new_model = Model(
-        model_name=model_name,
-        model_path=model_path,
-        config_path=config_path,
-        cluster_model_path=cluster_model_path,
-        category=category,
+# Thêm model
+@app.post("/models/", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
+async def create_model(model: ModelCreate):
+    # Tạo ID duy nhất cho model
+    model_id = str(uuid.uuid4())
+
+    # Lưu model vào Firebase Firestore
+    model_ref = db_firestore.collection("models").document(model_id)
+    model_ref.set(
+        {
+            "model_name": model.model_name,
+            "model_path": model.model_path,
+            "config_path": model.config_path,
+            "cluster_model_path": model.cluster_model_path,
+            "category": model.category,
+        }
     )
-    db.add(new_model)
-    db.commit()
-    db.refresh(new_model)
-    return new_model
+
+    # Trả về thông tin của model đã được lưu
+    return ModelResponse(
+        id_model=model_id,
+        model_name=model.model_name,
+        model_path=model.model_path,
+        config_path=model.config_path,
+        cluster_model_path=model.cluster_model_path,
+        category=model.category,
+    )
 
 
-@app.put("/models/{model_id}", response_model=ModelResponse)
-async def update_model(
-    model_id: int,
-    model_name: str = Form(...),
-    model_path: str = Form(...),
-    config_path: str = Form(...),
-    cluster_model_path: str = Form(None),
-    category: str = Form(...),
-    db: Session = Depends(get_db),
-):
-    model_info = db.query(Model).filter(Model.id_model == model_id).first()
-    if not model_info:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    model_info.model_name = model_name
-    model_info.model_path = model_path
-    model_info.config_path = config_path
-    model_info.cluster_model_path = cluster_model_path
-    model_info.category = category
-
-    db.commit()
-    db.refresh(model_info)
-    return model_info
-
-
-@app.delete("/models/{model_id}", response_model=dict)
-async def delete_model(model_id: int, db: Session = Depends(get_db)):
-    model_info = db.query(Model).filter(Model.id_model == model_id).first()
-    if not model_info:
-        raise HTTPException(status_code=404, detail="Model not found")
-
-    db.delete(model_info)
-    db.commit()
-    return {"detail": "Model deleted successfully"}
+# Xóa một model theo ID
+@app.delete("/models/{model_id}")
+async def delete_model(model_id: str):
+    try:
+        db_firestore.collection("models").document(str(model_id)).delete()
+        return {"message": "Xóa model thành công."}
+    except Exception as e:
+        logger.error(f"Lỗi khi xóa model: {e}")
+        raise HTTPException(status_code=500, detail="Không thể xóa model.")
 
 
 # API TTS
@@ -345,6 +337,7 @@ async def text_to_speech(request: TextToSpeechRequest):
     return FileResponse(audio_file_path, media_type="audio/wav", filename="output.wav")
 
 
+# API TFTS
 @app.post("/text-file-to-speech/")
 async def text_file_to_speech(
     file: UploadFile = File(...),
@@ -398,8 +391,7 @@ async def text_file_to_speech(
 async def text_file_to_speech_and_infer(
     file: UploadFile = File(...),
     locate: str = Form("vi"),
-    model_id: int = Form(...),
-    db: Session = Depends(get_db),
+    model_id: str = Form(...),
 ):
     if file.filename.endswith(".txt"):
         # Đọc nội dung từ tệp văn bản
@@ -410,13 +402,20 @@ async def text_file_to_speech_and_infer(
         text = content.decode("utf-8")  # Giải mã nội dung
 
         # Lấy model_path và config_path từ cơ sở dữ liệu
-        model_info = db.query(Model).filter(Model.id_model == model_id).first()
-        if not model_info:
-            raise HTTPException(status_code=400, detail="Model not found")
+        try:
+            model_doc = db_firestore.collection("models").document(str(model_id)).get()
+            if not model_doc.exists:
+                raise HTTPException(status_code=400, detail="Model not found")
 
-        model_path = BASE_DIR / model_info.model_path
-        config_path = BASE_DIR / model_info.config_path
-        cluster_model_path = BASE_DIR / model_info.cluster_model_path
+            model_info = model_doc.to_dict()
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Lỗi khi lấy thông tin model: {e}"
+            )
+
+        model_path = BASE_DIR / model_info["model_path"]
+        config_path = BASE_DIR / model_info["config_path"]
+        cluster_model_path = BASE_DIR / model_info["cluster_model_path"]
         # Tạo tên file âm thanh ngẫu nhiên
         section_id = str(uuid.uuid4())
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
@@ -444,11 +443,7 @@ async def text_file_to_speech_and_infer(
                 model_path=Path(model_path),
                 config_path=Path(config_path),
                 speaker=0,
-                cluster_model_path=(
-                    None
-                    if model_info.cluster_model_path is None
-                    else Path(cluster_model_path)
-                ),
+                cluster_model_path=Path(cluster_model_path),
                 transpose=0,
                 auto_predict_f0=True,
                 cluster_infer_ratio=0.0,
@@ -477,13 +472,20 @@ async def text_file_to_speech_and_infer(
         doc = Document(io.BytesIO(content))
         text = "\n".join([para.text for para in doc.paragraphs])
         # Lấy model_path và config_path từ cơ sở dữ liệu
-        model_info = db.query(Model).filter(Model.id_model == model_id).first()
-        if not model_info:
-            raise HTTPException(status_code=400, detail="Model not found")
+        try:
+            model_doc = db_firestore.collection("models").document(str(model_id)).get()
+            if not model_doc.exists:
+                raise HTTPException(status_code=400, detail="Model not found")
 
-        model_path = BASE_DIR / model_info.model_path
-        config_path = BASE_DIR / model_info.config_path
-        cluster_model_path = BASE_DIR / model_info.cluster_model_path
+            model_info = model_doc.to_dict()
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Lỗi khi lấy thông tin model: {e}"
+            )
+
+        model_path = BASE_DIR / model_info["model_path"]
+        config_path = BASE_DIR / model_info["config_path"]
+        cluster_model_path = BASE_DIR / model_info["cluster_model_path"]
 
         # Tạo tên file âm thanh ngẫu nhiên
         section_id = str(uuid.uuid4())
@@ -538,26 +540,35 @@ async def text_file_to_speech_and_infer(
 
 
 @app.post("/text-to-speech-and-infer/")
-async def text_to_speech_and_process(
-    request: TextToSpeechAndInferRequest, db: Session = Depends(get_db)
-):
-    # Kiểm tra thông tin mô hình trong cơ sở dữ liệu
-    model_info = db.query(Model).filter(Model.id_model == request.model_id).first()
-    if not model_info:
-        raise HTTPException(status_code=400, detail="Model not found")
+async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
+    model_id = request.model_id
+    text = request.text
+    locate = request.locate
+
     os.makedirs(section_storage_path, exist_ok=True)
     os.makedirs(train_model_path, exist_ok=True)
+    # Kiểm tra thông tin mô hình trong cơ sở dữ liệu
+    try:
+        model_doc = db_firestore.collection("models").document(str(model_id)).get()
+        if not model_doc.exists:
+            raise HTTPException(status_code=400, detail="Model not found")
+
+        model_info = model_doc.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy thông tin model: {e}")
+
     # Lấy thông tin đường dẫn mô hình và cấu hình từ cơ sở dữ liệu
-    model_path = BASE_DIR / model_info.model_path
-    config_path = BASE_DIR / model_info.config_path
-    cluster_model_path = BASE_DIR / model_info.cluster_model_path
+    model_path = BASE_DIR / model_info["model_path"]
+    config_path = BASE_DIR / model_info["config_path"]
+    cluster_model_path = BASE_DIR / model_info["cluster_model_path"]
+
     # Tạo tên file ngẫu nhiên
     section_id = str(uuid.uuid4())
     section_cloned_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
     # Sử dụng gTTS để chuyển đổi văn bản thành giọng nói
     try:
-        tts = gTTS(text=request.text, lang=request.locate)
+        tts = gTTS(text=text, lang=locate)
         # Lưu file âm thanh trong một luồng riêng biệt
         await asyncio.to_thread(tts.save, section_cloned_file_path)
     except Exception as e:
@@ -598,14 +609,19 @@ async def text_to_speech_and_process(
 @app.post("/infer-audio/", response_class=FileResponse)
 async def upload_and_infer(
     file: UploadFile = File(...),
-    model_id: int = Form(...),
-    db: Session = Depends(get_db),
+    model_id: str = Form(...),
 ):
 
     # Kiểm tra thông tin mô hình trong cơ sở dữ liệu
-    model_info = db.query(Model).filter(Model.id_model == model_id).first()
-    if not model_info:
-        raise HTTPException(status_code=400, detail="Model not found")
+    try:
+        model_doc = db_firestore.collection("models").document(str(model_id)).get()
+        if not model_doc.exists:
+            raise HTTPException(status_code=400, detail="Model not found")
+
+        model_info = model_doc.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy thông tin model: {e}")
+
     os.makedirs(section_storage_path, exist_ok=True)
     os.makedirs(train_model_path, exist_ok=True)
     input_id = str(uuid.uuid4())
@@ -614,7 +630,7 @@ async def upload_and_infer(
     input_file_path = os.path.join(section_storage_path, f"{input_id}.wav")
     output_file_path = os.path.join(section_storage_path, f"{output_id}_processed.wav")
 
-    cluster_model_path = BASE_DIR / model_info.cluster_model_path
+    cluster_model_path = BASE_DIR / model_info["cluster_model_path"]
     # Lưu tệp âm thanh được tải lên bằng aiofiles
     async with aiofiles.open(input_file_path, "wb") as buffer:
         content = await file.read()
@@ -625,8 +641,8 @@ async def upload_and_infer(
         infer,
         input_path=input_file_path,  # Sử dụng tệp đã lưu
         output_path=Path(output_file_path),
-        model_path=Path(BASE_DIR / model_info.model_path),
-        config_path=Path(BASE_DIR / model_info.config_path),
+        model_path=Path(BASE_DIR / model_info["model_path"]),
+        config_path=Path(BASE_DIR / model_info["config_path"]),
         speaker=0,
         cluster_model_path=Path(cluster_model_path),
         transpose=0,
@@ -650,10 +666,12 @@ async def process_audio(
     name: str = Form(...), file: UploadFile = File(...), f0_method: str = Form(...)
 ):
     # Tạo thư mục tạm để lưu file âm thanh
-    input_dir = BASE_DIR / "audio_data"
-    output_dir = BASE_DIR / f"trainmodel/{name}"
-    input_train = BASE_DIR / f"trainmodel/{name}/dataset/44k"
-    output_split = BASE_DIR / f"trainmodel/{name}/dataset_raw"
+    suid = str(uuid.uuid4())[:8]
+    file_name = name + suid
+    input_dir = BASE_DIR / f"audio_data/{file_name}"
+    output_dir = BASE_DIR / f"trainmodel/{file_name}"
+    input_train = BASE_DIR / f"trainmodel/{file_name}/dataset/44k"
+    output_split = BASE_DIR / f"trainmodel/{file_name}/dataset_raw"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     if not os.path.exists(input_dir):
@@ -706,16 +724,25 @@ async def process_audio(
         )
 
         # Bước 5: Train model
-        # model_dir = os.path.join(output_dir, "logs/44k")
-        # await asyncio.to_thread(
-        #     train,
-        #     config_path=config_dir,
-        #     model_path=model_dir,
-        #     tensorboard=False,
-        #     reset_optimizer=False,
-        # )
-
-        return {"message": "Audio processing completed successfully!"}
+        model_dir = os.path.join(output_dir, "logs/44k")
+        await asyncio.to_thread(
+            train,
+            config_path=config_dir,
+            model_path=model_dir,
+            tensorboard=False,
+            reset_optimizer=False,
+        )
+        latest_model_path = get_latest_model_path(model_dir)
+        config_path_relative = Path(config_dir).relative_to(BASE_DIR).as_posix()
+        latest_model_path_relative = (
+            Path(latest_model_path).relative_to(BASE_DIR).as_posix()
+        )
+        return {
+            "message": "Audio processing completed successfully!",
+            "latest_model_path": latest_model_path_relative,
+            "config_path": config_path_relative,
+            "name": name,
+        }
 
     except Exception as e:
         return {"error": str(e)}
