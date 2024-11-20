@@ -39,31 +39,30 @@ import uvicorn
 import re
 import firebase_admin
 from firebase_admin import credentials, firestore
+from concurrent.futures import ThreadPoolExecutor
+BASE_DIR = Path(__file__).resolve().parent
 
-cred = credentials.Certificate("D:/DATN/APIkey.json")
+
+cred = credentials.Certificate(BASE_DIR / "APIkey.json")
 firebase_admin.initialize_app(cred)
 db_firestore = firestore.client()
 
-BASE_DIR = Path(__file__).resolve().parent
+
 section_storage_path = BASE_DIR / "files"
 train_model_path = BASE_DIR / "trainmodel"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
+executor = ThreadPoolExecutor(max_workers=20)
 # Tạo FastAPI app
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "*"
-    ],  # Cho phép tất cả các nguồn. Bạn có thể điều chỉnh để chỉ cho phép các nguồn cụ thể.
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=[
-        "*"
-    ],  # Cho phép tất cả các phương thức HTTP (GET, POST, PUT, DELETE, v.v.).
-    allow_headers=["*"],  # Cho phép tất cả các header.
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -104,18 +103,16 @@ def get_latest_model_path(log_dir):
     max_epoch = -1
     model_path = None
 
-    # Duyệt qua tất cả các file trong thư mục log_dir
     for filename in os.listdir(log_dir):
-        # Sử dụng regex để tìm file có dạng G_<sốepochs>.pth
+
         match = re.match(r"G_(\d+)\.pth", filename)
         if match:
             epoch = int(match.group(1))
-            # Kiểm tra nếu số epochs của file hiện tại lớn hơn max_epoch
+
             if epoch > max_epoch:
                 max_epoch = epoch
                 model_path = Path(log_dir) / filename
 
-    # Trả về đường dẫn chuẩn với dấu gạch chéo '/'
     return str(model_path).replace("\\", "/") if model_path else None
 
 
@@ -123,9 +120,7 @@ async def save_uploaded_file(uploaded_file, destination: Path):
     try:
         with destination.open("wb") as dest_file:
             while True:
-                chunk = await asyncio.to_thread(
-                    uploaded_file.read, 1024
-                )  # Đọc từng khối 1024 byte
+                chunk = await asyncio.to_thread(uploaded_file.read, 1024)
                 if not chunk:
                     break
                 dest_file.write(chunk)
@@ -283,10 +278,9 @@ async def get_models():
 # Thêm model
 @app.post("/models/", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
 async def create_model(model: ModelCreate):
-    # Tạo ID duy nhất cho model
+
     model_id = str(uuid.uuid4())
 
-    # Lưu model vào Firebase Firestore
     model_ref = db_firestore.collection("models").document(model_id)
     model_ref.set(
         {
@@ -298,7 +292,6 @@ async def create_model(model: ModelCreate):
         }
     )
 
-    # Trả về thông tin của model đã được lưu
     return ModelResponse(
         id_model=model_id,
         model_name=model.model_name,
@@ -326,10 +319,9 @@ async def text_to_speech(request: TextToSpeechRequest):
     section_id = str(uuid.uuid4())
     audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
-    # Generate audio file
     try:
         tts = gTTS(text=request.text, lang=request.locate)
-        # Lưu file âm thanh trong một luồng riêng biệt
+
         await asyncio.to_thread(tts.save, section_cloned_file_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
@@ -346,14 +338,14 @@ async def text_file_to_speech(
     if file.filename.endswith(".txt"):
         # Đọc nội dung từ tệp văn bản
         content = await file.read()
-        text = content.decode("utf-8")  # Giải mã nội dung
+        text = content.decode("utf-8")
         section_id = str(uuid.uuid4())
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
         # Chuyển đổi văn bản thành giọng nói
         try:
             tts = gTTS(text=text, lang=locate)
-            # Lưu file âm thanh trong một luồng riêng biệt
+
             await asyncio.to_thread(tts.save, audio_file_path)
         except Exception as e:
             raise HTTPException(
@@ -372,7 +364,7 @@ async def text_file_to_speech(
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
         try:
             tts = gTTS(text=text, lang=locate)
-            # Lưu file âm thanh trong một luồng riêng biệt
+
             await asyncio.to_thread(tts.save, audio_file_path)
         except Exception as e:
             raise HTTPException(
@@ -399,9 +391,8 @@ async def text_file_to_speech_and_infer(
         os.makedirs(train_model_path, exist_ok=True)
 
         content = await file.read()
-        text = content.decode("utf-8")  # Giải mã nội dung
+        text = content.decode("utf-8")  
 
-        # Lấy model_path và config_path từ cơ sở dữ liệu
         try:
             model_doc = db_firestore.collection("models").document(str(model_id)).get()
             if not model_doc.exists:
@@ -416,14 +407,13 @@ async def text_file_to_speech_and_infer(
         model_path = BASE_DIR / model_info["model_path"]
         config_path = BASE_DIR / model_info["config_path"]
         cluster_model_path = BASE_DIR / model_info["cluster_model_path"]
-        # Tạo tên file âm thanh ngẫu nhiên
+
         section_id = str(uuid.uuid4())
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
-        # Chuyển đổi văn bản thành giọng nói
         try:
             tts = gTTS(text=text, lang=locate)
-            # Lưu file âm thanh trong một luồng riêng biệt
+            
             await asyncio.to_thread(tts.save, audio_file_path)
         except Exception as e:
             raise HTTPException(
@@ -569,12 +559,12 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
     # Sử dụng gTTS để chuyển đổi văn bản thành giọng nói
     try:
         tts = gTTS(text=text, lang=locate)
-        # Lưu file âm thanh trong một luồng riêng biệt
+       
         await asyncio.to_thread(tts.save, section_cloned_file_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
 
-    # Gọi hàm infer để xử lý âm thanh (sử dụng asyncio.to_thread nếu infer là đồng bộ)
+    # Gọi hàm infer để xử lý âm thanh 
     output_audio_path = os.path.join(
         section_storage_path, f"{section_id}_processed.wav"
     )
@@ -636,10 +626,10 @@ async def upload_and_infer(
         content = await file.read()
         await buffer.write(content)
 
-    # Gọi hàm infer để xử lý âm thanh (cần đảm bảo infer là hàm async hoặc sử dụng asyncio.to_thread nếu không đồng bộ)
+    # Gọi hàm infer để xử lý âm thanh
     await asyncio.to_thread(
         infer,
-        input_path=input_file_path,  # Sử dụng tệp đã lưu
+        input_path=input_file_path, 
         output_path=Path(output_file_path),
         model_path=Path(BASE_DIR / model_info["model_path"]),
         config_path=Path(BASE_DIR / model_info["config_path"]),
@@ -741,7 +731,7 @@ async def process_audio(
             "message": "Audio processing completed successfully!",
             "latest_model_path": latest_model_path_relative,
             "config_path": config_path_relative,
-            "name": name,
+            "name": file_name,
             "cluster_model_path": "None",
         }
 
