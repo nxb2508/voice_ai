@@ -32,3 +32,5 @@ pip install -U so-vits-svc-fork
 ```bash
 pip install -r requirements.txt
 ```
+- Để các file trong 1 folder như hình 
+![alt text](asset/image/image.png)
