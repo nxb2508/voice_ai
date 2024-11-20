@@ -1,3 +1,4 @@
 myenv/
 __pycache__/
-model/APIkey.json
+model/
+APIkey.json
