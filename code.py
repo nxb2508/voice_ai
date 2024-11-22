@@ -669,13 +669,13 @@ async def process_audio(
 
         # Bước 5: Train model
         model_dir = os.path.join(output_dir, "logs/44k")
-        # await asyncio.to_thread(
-        #     train,
-        #     config_path=config_dir,
-        #     model_path=model_dir,
-        #     tensorboard=False,
-        #     reset_optimizer=False,
-        # )
+        await asyncio.to_thread(
+            train,
+            config_path=config_dir,
+            model_path=model_dir,
+            tensorboard=False,
+            reset_optimizer=False,
+        )
         latest_model_path = get_latest_model_path(model_dir)
         config_path_relative = Path(config_dir).relative_to(BASE_DIR).as_posix()
         latest_model_path_relative = (
