@@ -40,6 +40,8 @@ import re
 import firebase_admin
 from firebase_admin import credentials, firestore
 from concurrent.futures import ThreadPoolExecutor
+import json
+
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -126,6 +128,22 @@ async def save_uploaded_file(uploaded_file, destination: Path):
                 dest_file.write(chunk)
     except Exception as e:
         raise RuntimeError(f"Error saving uploaded file: {e}")
+
+
+def update_config(file_path):
+
+    with open(file_path, "r") as file:
+        config = json.load(file)
+
+    config["train"]["epochs"] = 3000
+    config["train"]["batch_size"] = 16
+    config["train"]["log_interval"] = 200
+    config["train"]["eval_interval"] = 800
+    config["train"]["learning_rate"] = 0.0015
+
+    with open(file_path, "w") as file:
+        json.dump(config, file, indent=4)
+    print("update thành công")
 
 
 def pre_split(
@@ -313,71 +331,6 @@ async def delete_model(model_id: str):
         raise HTTPException(status_code=500, detail="Không thể xóa model.")
 
 
-# API TTS
-@app.post("/text-to-speech/")
-async def text_to_speech(request: TextToSpeechRequest):
-    section_id = str(uuid.uuid4())
-    audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
-
-    try:
-        tts = gTTS(text=request.text, lang=request.locate)
-
-        await asyncio.to_thread(tts.save, section_cloned_file_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
-
-    return FileResponse(audio_file_path, media_type="audio/wav", filename="output.wav")
-
-
-# API TFTS
-@app.post("/text-file-to-speech/")
-async def text_file_to_speech(
-    file: UploadFile = File(...),
-    locate: str = Form("vi"),
-):
-    if file.filename.endswith(".txt"):
-        # Đọc nội dung từ tệp văn bản
-        content = await file.read()
-        text = content.decode("utf-8")
-        section_id = str(uuid.uuid4())
-        audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
-
-        # Chuyển đổi văn bản thành giọng nói
-        try:
-            tts = gTTS(text=text, lang=locate)
-
-            await asyncio.to_thread(tts.save, audio_file_path)
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error generating audio: {str(e)}"
-            )
-
-        return FileResponse(
-            audio_file_path, media_type="audio/wav", filename="output.wav"
-        )
-    elif file.filename.endswith(".docx"):
-        # Đọc nội dung từ tệp Word
-        content = await file.read()
-        doc = Document(io.BytesIO(content))
-        text = "\n".join([para.text for para in doc.paragraphs])
-        section_id = str(uuid.uuid4())
-        audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
-        try:
-            tts = gTTS(text=text, lang=locate)
-
-            await asyncio.to_thread(tts.save, audio_file_path)
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error generating audio: {str(e)}"
-            )
-
-        return FileResponse(
-            audio_file_path, media_type="audio/wav", filename="output.wav"
-        )
-    else:
-        raise HTTPException(status_code=400, detail="Invalid file format.")
-
-
 # API TFTS và Infer
 @app.post("/text-file-to-speech-and-infer/")
 async def text_file_to_speech_and_infer(
@@ -391,7 +344,7 @@ async def text_file_to_speech_and_infer(
         os.makedirs(train_model_path, exist_ok=True)
 
         content = await file.read()
-        text = content.decode("utf-8")  
+        text = content.decode("utf-8")
 
         try:
             model_doc = db_firestore.collection("models").document(str(model_id)).get()
@@ -413,7 +366,7 @@ async def text_file_to_speech_and_infer(
 
         try:
             tts = gTTS(text=text, lang=locate)
-            
+
             await asyncio.to_thread(tts.save, audio_file_path)
         except Exception as e:
             raise HTTPException(
@@ -559,12 +512,12 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
     # Sử dụng gTTS để chuyển đổi văn bản thành giọng nói
     try:
         tts = gTTS(text=text, lang=locate)
-       
+
         await asyncio.to_thread(tts.save, section_cloned_file_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
 
-    # Gọi hàm infer để xử lý âm thanh 
+    # Gọi hàm infer để xử lý âm thanh
     output_audio_path = os.path.join(
         section_storage_path, f"{section_id}_processed.wav"
     )
@@ -629,7 +582,7 @@ async def upload_and_infer(
     # Gọi hàm infer để xử lý âm thanh
     await asyncio.to_thread(
         infer,
-        input_path=input_file_path, 
+        input_path=input_file_path,
         output_path=Path(output_file_path),
         model_path=Path(BASE_DIR / model_info["model_path"]),
         config_path=Path(BASE_DIR / model_info["config_path"]),
@@ -703,6 +656,7 @@ async def process_audio(
             config_path=config_dir,
             config_type=config_type,
         )
+        update_config(config_dir)
         # Bước 4: Pre-hubert
         await asyncio.to_thread(
             pre_hubert,
@@ -715,28 +669,35 @@ async def process_audio(
 
         # Bước 5: Train model
         model_dir = os.path.join(output_dir, "logs/44k")
-        await asyncio.to_thread(
-            train,
-            config_path=config_dir,
-            model_path=model_dir,
-            tensorboard=False,
-            reset_optimizer=False,
-        )
+        # await asyncio.to_thread(
+        #     train,
+        #     config_path=config_dir,
+        #     model_path=model_dir,
+        #     tensorboard=False,
+        #     reset_optimizer=False,
+        # )
         latest_model_path = get_latest_model_path(model_dir)
         config_path_relative = Path(config_dir).relative_to(BASE_DIR).as_posix()
         latest_model_path_relative = (
             Path(latest_model_path).relative_to(BASE_DIR).as_posix()
         )
+
+        # Lưu thông tin model vào Firestore
+        model_id = str(uuid.uuid4())
+        model_ref = db_firestore.collection("models").document(model_id)
+        model_data = {
+            "model_name": file_name,
+            "model_path": latest_model_path_relative,
+            "config_path": config_path_relative,
+            "cluster_model_path": "None",
+            "category": "user_train",
+        }
+        model_ref.set(model_data)
         return {
             "message": "Audio processing completed successfully!",
-            "latest_model_path": latest_model_path_relative,
-            "config_path": config_path_relative,
-            "name": file_name,
-            "cluster_model_path": "None",
         }
-
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
