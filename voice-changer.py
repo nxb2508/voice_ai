@@ -135,8 +135,8 @@ def update_config(file_path):
     with open(file_path, "r") as file:
         config = json.load(file)
 
-    config["train"]["epochs"] = 3000
-    config["train"]["batch_size"] = 1
+    config["train"]["epochs"] = 1000
+    config["train"]["batch_size"] = 16
     config["train"]["log_interval"] = 200
     config["train"]["eval_interval"] = 800
     config["train"]["learning_rate"] = 0.0015
