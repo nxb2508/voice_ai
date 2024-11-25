@@ -676,7 +676,7 @@ async def process_audio(
 ):
     # Tạo thư mục tạm để lưu file âm thanh
     suid = str(uuid.uuid4())[:8]
-    file_name = name + suid
+    file_name = file_name = name + "_" + epochs_number + "_" + suid
     input_dir = BASE_DIR / f"audio_data/{file_name}"
     output_dir = BASE_DIR / f"trainmodel/{file_name}"
     input_train = BASE_DIR / f"trainmodel/{file_name}/dataset/44k"
@@ -778,7 +778,7 @@ async def process_audio_zip(
 
     suid = str(uuid.uuid4())[:8]
 
-    file_name = name + suid
+    file_name = name + "_" + epochs_number + "_" + suid
     input_dir = BASE_DIR / f"audio_data/{file_name}"
     output_dir = BASE_DIR / f"trainmodel/{file_name}"
     input_train = BASE_DIR / f"trainmodel/{file_name}/dataset/44k"
