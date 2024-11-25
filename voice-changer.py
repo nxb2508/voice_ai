@@ -394,6 +394,70 @@ async def delete_model(model_id: str):
         raise HTTPException(status_code=500, detail="Không thể xóa model.")
 
 
+# API TTS
+@app.post("/text-to-speech/")
+async def text_to_speech(request: TextToSpeechRequest):
+    section_id = str(uuid.uuid4())
+    audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
+
+    # Generate audio file
+    try:
+        tts = gTTS(text=request.text, lang=request.locate)
+        await asyncio.to_thread(tts.save, audio_file_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
+
+    return FileResponse(audio_file_path, media_type="audio/wav", filename="output.wav")
+
+
+@app.post("/text-file-to-speech/")
+async def text_file_to_speech(
+    file: UploadFile = File(...),
+    locate: str = Form("vi"),
+):
+    if file.filename.endswith(".txt"):
+        # Đọc nội dung từ tệp văn bản
+        content = await file.read()
+        text = content.decode("utf-8")  # Giải mã nội dung
+        section_id = str(uuid.uuid4())
+        audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
+
+        # Chuyển đổi văn bản thành giọng nói
+        try:
+            tts = gTTS(text=text, lang=locate)
+            await asyncio.to_thread(tts.save, audio_file_path)
+            # print(f"File âm thanh đã được lưu tại: {audio_file_path}")
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Error generating audio: {str(e)}"
+            )
+
+        return FileResponse(
+            audio_file_path, media_type="audio/wav", filename="output.wav"
+        )
+    elif file.filename.endswith(".docx"):
+        # Đọc nội dung từ tệp Word
+        content = await file.read()
+        doc = Document(io.BytesIO(content))
+        text = "\n".join([para.text for para in doc.paragraphs])
+        section_id = str(uuid.uuid4())
+        audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
+        try:
+            tts = gTTS(text=text, lang=locate)
+            await asyncio.to_thread(tts.save, audio_file_path)
+            # print(f"File âm thanh đã được lưu tại: {audio_file_path}")
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Error generating audio: {str(e)}"
+            )
+
+        return FileResponse(
+            audio_file_path, media_type="audio/wav", filename="output.wav"
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Invalid file format.")
+
+
 # API TFTS và Infer
 @app.post("/text-file-to-speech-and-infer/")
 async def text_file_to_speech_and_infer(
