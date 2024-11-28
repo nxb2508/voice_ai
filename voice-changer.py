@@ -165,10 +165,10 @@ def pre_split(
     input_dir: str,
     output_dir: str,
     sr: int,
-    max_length: float = 5.0,
+    max_length: float = 10.0,
     top_db: int = 30,
-    frame_seconds: float = 0.5,
-    hop_seconds: float = 0.1,
+    frame_seconds: float = 1,
+    hop_seconds: float = 0.3,
     n_jobs: int = -1,
 ) -> None:
 
@@ -190,10 +190,10 @@ def pre_split(
 def process_audio_files(
     input_dir: str,
     output_dir: str,
-    sampling_rate: int = 16000,
+    sampling_rate: int = 44100,
     top_db: int = 30,
-    frame_seconds: float = 0.1,
-    hop_seconds: float = 0.05,
+    frame_seconds: float = 1,
+    hop_seconds: float = 0.3,
     n_jobs: int = -1,
 ) -> None:
     input_path = Path(input_dir)
@@ -766,14 +766,14 @@ async def process_audio(
             pre_split,
             input_dir=input_dir,
             output_dir=os.path.join(output_dir, f"dataset_raw/{name}"),
-            sr=22050,
+            sr=44100,
         )
         # Bước 2: Process Audio Files
         await asyncio.to_thread(
             process_audio_files,
             input_dir=output_split,
             output_dir=input_train,
-            sampling_rate=16000,
+            sampling_rate=44100,
         )
 
         # Bước 3: Pre-config
@@ -865,7 +865,7 @@ async def process_audio_zip(
                 process_audio_files,
                 input_dir=output_split,
                 output_dir=input_train,
-                sampling_rate=16000,
+                sampling_rate=44100,
             )
             config_dir = os.path.join(output_dir, "configs/44k/config.json")
             filelist_dir = os.path.join(output_dir, "filelists/44k")
@@ -920,13 +920,13 @@ async def process_audio_zip(
                 pre_split,
                 input_dir=input_dir,
                 output_dir=os.path.join(output_dir, f"dataset_raw/{name}"),
-                sr=22050,
+                sr=44100,
             )
             await asyncio.to_thread(
                 process_audio_files,
                 input_dir=output_split,
                 output_dir=input_train,
-                sampling_rate=16000,
+                sampling_rate=44100,
             )
 
             config_dir = os.path.join(output_dir, "configs/44k/config.json")
@@ -998,7 +998,7 @@ async def process_audio(
             process_audio_files,
             input_dir=output_split,
             output_dir=input_train,
-            sampling_rate=16000,
+            sampling_rate=44100,
         )
         await asyncio.to_thread(
             pre_config,
