@@ -153,8 +153,8 @@ def update_config(file_path, epochs_number):
     config["train"]["epochs"] = epochs_number
     config["train"]["batch_size"] = 16
     config["train"]["log_interval"] = 200
-    config["train"]["eval_interval"] = 800
-    config["train"]["learning_rate"] = 0.0015
+    config["train"]["eval_interval"] = 400
+    config["train"]["learning_rate"] = 0.00015
 
     with open(file_path, "w") as file:
         json.dump(config, file, indent=4)
