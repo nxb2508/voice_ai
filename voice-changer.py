@@ -387,11 +387,83 @@ async def update_model(model_id: str, update_data: UpdateModelRequest):
 @app.delete("/models/{model_id}")
 async def delete_model(model_id: str):
     try:
+        # Lấy thông tin model từ Firestore
+        output_dir = BASE_DIR / f"trainmodel"
+        model_doc = db_firestore.collection("models").document(str(model_id)).get()
+        if not model_doc.exists:
+            raise HTTPException(status_code=404, detail="Model không tồn tại.")
+
+        model_data = model_doc.to_dict()
+        model_name = model_data.get("model_name")
+
+        # Đường dẫn thư mục chứa model
+        model_folder_path = os.path.join(output_dir, model_name)
+
+        # Xóa thư mục
+        if os.path.exists(model_folder_path):
+            shutil.rmtree(model_folder_path)
+            logger.info(f"Đã xóa thư mục: {model_folder_path}")
+        else:
+            logger.warning(f"Thư mục không tồn tại: {model_folder_path}")
+
+        # Xóa model từ Firestore
         db_firestore.collection("models").document(str(model_id)).delete()
         return {"message": "Xóa model thành công."}
+
     except Exception as e:
         logger.error(f"Lỗi khi xóa model: {e}")
         raise HTTPException(status_code=500, detail="Không thể xóa model.")
+
+
+@app.delete("/models/{model_id}/cleanup")
+async def cleanup_model_files(model_id: str):
+    try:
+        output_dir = BASE_DIR / f"trainmodel"
+        # Giả sử bạn lấy được `model_name` từ Firestore
+        model_doc = db_firestore.collection("models").document(str(model_id)).get()
+        if not model_doc.exists:
+            raise HTTPException(status_code=404, detail="Model không tồn tại.")
+
+        model_data = model_doc.to_dict()
+        model_name = model_data.get("model_name")
+
+        folder_path  = os.path.join(output_dir, model_name, "logs","44k")
+        if not os.path.exists(folder_path):
+            raise HTTPException(status_code=404, detail="Đường dẫn không tồn tại.")
+        
+        files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+        max_d_file = None
+        max_g_file = None
+        max_d_version = -1
+        max_g_version = -1
+
+        for file in files:
+            if file.startswith("D_") and file.endswith(".pth"):
+                version = int(file.split("_")[1].split(".")[0]) 
+                if version > max_d_version:
+                    max_d_version = version
+                    max_d_file = file
+            elif file.startswith("G_") and file.endswith(".pth"):
+                version = int(file.split("_")[1].split(".")[0])  
+                if version > max_g_version:
+                    max_g_version = version
+                    max_g_file = file
+
+        
+        for file in files:
+            file_path = os.path.join(folder_path, file)
+            if file.startswith("D_") and file != max_d_file:
+                os.remove(file_path)
+                print(f"Đã xóa: {file_path}")
+            elif file.startswith("G_") and file != max_g_file:
+                os.remove(file_path)
+                print(f"Đã xóa: {file_path}")
+
+        return {"message": "Dọn dẹp file thành công.", "remaining_files": [max_d_file, max_g_file]}
+
+    except Exception as e:
+        print(f"Lỗi khi dọn dẹp tệp: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi dọn dẹp file: {str(e)}")
 
 
 # API TTS
