@@ -42,6 +42,7 @@ from firebase_admin import credentials, firestore
 from concurrent.futures import ThreadPoolExecutor
 import json
 import zipfile
+import azure.cognitiveservices.speech as speechsdk
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -49,7 +50,8 @@ BASE_DIR = Path(__file__).resolve().parent
 cred = credentials.Certificate(BASE_DIR / "APIkey.json")
 firebase_admin.initialize_app(cred)
 db_firestore = firestore.client()
-
+api_key = "7Tc99Ctjbdfyf3mxlwQTJLRRwfP1ENgavK7IyuYl26bQsVbOtAT4JQQJ99ALACYeBjFXJ3w3AAAYACOGDIk6"  # Thay bằng API Key của bạn
+region = "eastus"
 
 section_storage_path = BASE_DIR / "files"
 train_model_path = BASE_DIR / "trainmodel"
@@ -427,11 +429,15 @@ async def cleanup_model_files(model_id: str):
         model_data = model_doc.to_dict()
         model_name = model_data.get("model_name")
 
-        folder_path  = os.path.join(output_dir, model_name, "logs","44k")
+        folder_path = os.path.join(output_dir, model_name, "logs", "44k")
         if not os.path.exists(folder_path):
             raise HTTPException(status_code=404, detail="Đường dẫn không tồn tại.")
-        
-        files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+
+        files = [
+            f
+            for f in os.listdir(folder_path)
+            if os.path.isfile(os.path.join(folder_path, f))
+        ]
         max_d_file = None
         max_g_file = None
         max_d_version = -1
@@ -439,17 +445,16 @@ async def cleanup_model_files(model_id: str):
 
         for file in files:
             if file.startswith("D_") and file.endswith(".pth"):
-                version = int(file.split("_")[1].split(".")[0]) 
+                version = int(file.split("_")[1].split(".")[0])
                 if version > max_d_version:
                     max_d_version = version
                     max_d_file = file
             elif file.startswith("G_") and file.endswith(".pth"):
-                version = int(file.split("_")[1].split(".")[0])  
+                version = int(file.split("_")[1].split(".")[0])
                 if version > max_g_version:
                     max_g_version = version
                     max_g_file = file
 
-        
         for file in files:
             file_path = os.path.join(folder_path, file)
             if file.startswith("D_") and file != max_d_file:
@@ -459,7 +464,10 @@ async def cleanup_model_files(model_id: str):
                 os.remove(file_path)
                 print(f"Đã xóa: {file_path}")
 
-        return {"message": "Dọn dẹp file thành công.", "remaining_files": [max_d_file, max_g_file]}
+        return {
+            "message": "Dọn dẹp file thành công.",
+            "remaining_files": [max_d_file, max_g_file],
+        }
 
     except Exception as e:
         print(f"Lỗi khi dọn dẹp tệp: {e}")
@@ -534,7 +542,7 @@ async def text_file_to_speech(
 @app.post("/text-file-to-speech-and-infer/")
 async def text_file_to_speech_and_infer(
     file: UploadFile = File(...),
-    locate: str = Form("vi"),
+    locate: str = Form(...),
     model_id: str = Form(...),
 ):
     if file.filename.endswith(".txt"):
@@ -562,15 +570,32 @@ async def text_file_to_speech_and_infer(
 
         section_id = str(uuid.uuid4())
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
-
         try:
-            tts = gTTS(text=text, lang=locate)
+            speech_config = speechsdk.SpeechConfig(subscription=api_key, region=region)
+            speech_config.speech_synthesis_voice_name = "vi-VN-" + locate
 
-            await asyncio.to_thread(tts.save, audio_file_path)
+            # Tạo một đối tượng Speech Synthesizer
+            audio_config = speechsdk.audio.AudioOutputConfig(
+                filename=section_cloned_file_path
+            )
+            synthesizer = speechsdk.SpeechSynthesizer(
+                speech_config=speech_config, audio_config=audio_config
+            )
+
+            result = synthesizer.speak_text_async(text).get()
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Error generating audio: {str(e)}"
             )
+
+        # try:
+        #     tts = gTTS(text=text, lang=locate)
+
+        #     await asyncio.to_thread(tts.save, audio_file_path)
+        # except Exception as e:
+        #     raise HTTPException(
+        #         status_code=500, detail=f"Error generating audio: {str(e)}"
+        #     )
 
         output_audio_path = os.path.join(
             section_storage_path, f"{section_id}_processed.wav"
@@ -632,16 +657,33 @@ async def text_file_to_speech_and_infer(
         # Tạo tên file âm thanh ngẫu nhiên
         section_id = str(uuid.uuid4())
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
-
-        # Chuyển đổi văn bản thành giọng nói
         try:
-            tts = gTTS(text=text, lang=locate)
-            # Lưu file âm thanh trong một luồng riêng biệt
-            await asyncio.to_thread(tts.save, audio_file_path)
+            speech_config = speechsdk.SpeechConfig(subscription=api_key, region=region)
+            speech_config.speech_synthesis_voice_name = "vi-VN-" + locate
+
+            # Tạo một đối tượng Speech Synthesizer
+            audio_config = speechsdk.audio.AudioOutputConfig(
+                filename=section_cloned_file_path
+            )
+            synthesizer = speechsdk.SpeechSynthesizer(
+                speech_config=speech_config, audio_config=audio_config
+            )
+
+            result = synthesizer.speak_text_async(text).get()
         except Exception as e:
             raise HTTPException(
                 status_code=500, detail=f"Error generating audio: {str(e)}"
             )
+
+        # Chuyển đổi văn bản thành giọng nói
+        # try:
+        #     tts = gTTS(text=text, lang=locate)
+        #     # Lưu file âm thanh trong một luồng riêng biệt
+        #     await asyncio.to_thread(tts.save, audio_file_path)
+        # except Exception as e:
+        #     raise HTTPException(
+        #         status_code=500, detail=f"Error generating audio: {str(e)}"
+        #     )
 
         output_audio_path = os.path.join(
             section_storage_path, f"{section_id}_processed.wav"
@@ -709,13 +751,28 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
     section_cloned_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
     # Sử dụng gTTS để chuyển đổi văn bản thành giọng nói
-    try:
-        tts = gTTS(text=text, lang=locate)
+    # try:
+    #     tts = gTTS(text=text, lang=locate)
 
-        await asyncio.to_thread(tts.save, section_cloned_file_path)
+    #     await asyncio.to_thread(tts.save, section_cloned_file_path)
+    # except Exception as e:
+    #     raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
+    try:
+
+        speech_config = speechsdk.SpeechConfig(subscription=api_key, region=region)
+        speech_config.speech_synthesis_voice_name = "vi-VN-" + locate
+
+        # Tạo một đối tượng Speech Synthesizer
+        audio_config = speechsdk.audio.AudioOutputConfig(
+            filename=section_cloned_file_path
+        )
+        synthesizer = speechsdk.SpeechSynthesizer(
+            speech_config=speech_config, audio_config=audio_config
+        )
+
+        result = synthesizer.speak_text_async(text).get()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
-
     # Gọi hàm infer để xử lý âm thanh
     output_audio_path = os.path.join(
         section_storage_path, f"{section_id}_processed.wav"
