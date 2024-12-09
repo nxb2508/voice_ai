@@ -42,7 +42,7 @@ from firebase_admin import credentials, firestore
 from concurrent.futures import ThreadPoolExecutor
 import json
 import zipfile
-import azure.cognitiveservices.speech as speechsdk
+import requests
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -50,8 +50,7 @@ BASE_DIR = Path(__file__).resolve().parent
 cred = credentials.Certificate(BASE_DIR / "APIkey.json")
 firebase_admin.initialize_app(cred)
 db_firestore = firestore.client()
-api_key = "7Tc99Ctjbdfyf3mxlwQTJLRRwfP1ENgavK7IyuYl26bQsVbOtAT4JQQJ99ALACYeBjFXJ3w3AAAYACOGDIk6"  # Thay bằng API Key của bạn
-region = "eastus"
+
 
 section_storage_path = BASE_DIR / "files"
 train_model_path = BASE_DIR / "trainmodel"
@@ -79,6 +78,7 @@ class ModelResponse(BaseModel):
     config_path: str
     cluster_model_path: str
     category: str
+    user_id: str
 
     class Config:
         from_attributes = True
@@ -91,6 +91,7 @@ class ModelCreate(BaseModel):
     config_path: str
     cluster_model_path: str
     category: str
+    user_id: str
 
 
 class UpdateModelRequest(BaseModel):
@@ -103,7 +104,7 @@ class UpdateModelRequest(BaseModel):
 
 class TextToSpeechRequest(BaseModel):
     text: str
-    locate: str = "vi"
+    locate: str
 
 
 class TextToSpeechAndInferRequest(BaseModel):
@@ -301,6 +302,7 @@ async def get_models():
                 config_path=data["config_path"],
                 cluster_model_path=data.get("cluster_model_path", ""),
                 category=data.get("category", ""),
+                user_id=data.get("user_id", ""),
             )
             models.append(model)
 
@@ -477,17 +479,17 @@ async def cleanup_model_files(model_id: str):
 # API TTS
 @app.post("/text-to-speech/")
 async def text_to_speech(request: TextToSpeechRequest):
+    os.makedirs(section_storage_path, exist_ok=True)
     section_id = str(uuid.uuid4())
     audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
     # Generate audio file
     try:
-        tts = gTTS(text=request.text, lang=request.locate)
+        tts = gTTS(text=text, lang=locate)
         await asyncio.to_thread(tts.save, audio_file_path)
+        # print(f"File âm thanh đã được lưu tại: {audio_file_path}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
-
-    return FileResponse(audio_file_path, media_type="audio/wav", filename="output.wav")
 
 
 @app.post("/text-file-to-speech/")
@@ -570,32 +572,44 @@ async def text_file_to_speech_and_infer(
 
         section_id = str(uuid.uuid4())
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
+
         try:
-            speech_config = speechsdk.SpeechConfig(subscription=api_key, region=region)
-            speech_config.speech_synthesis_voice_name = "vi-VN-" + locate
+            url = "https://api.fpt.ai/hmi/tts/v5"
 
-            # Tạo một đối tượng Speech Synthesizer
-            audio_config = speechsdk.audio.AudioOutputConfig(
-                filename=section_cloned_file_path
-            )
-            synthesizer = speechsdk.SpeechSynthesizer(
-                speech_config=speech_config, audio_config=audio_config
+            payload = text
+            headers = {
+                "api-key": "Y2E0zLaBD30uOXjqrDaakUkHTGzA9vS3",
+                "speed": "0",
+                "voice": "leminh",
+            }
+
+            response = requests.request(
+                "POST", url, data=payload.encode("utf-8"), headers=headers
             )
 
-            result = synthesizer.speak_text_async(text).get()
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="FPT AI TTS API call failed")
+
+            result = response.json()
+
+            # Kiểm tra nếu có lỗi
+            if result["error"] != 0:
+                raise HTTPException(status_code=500, detail="Error from FPT AI API")
+
+            # Lấy liên kết tải xuống file âm thanh
+            audio_url = result["async"]
+
+            # Tải file âm thanh từ liên kết
+            audio_response = requests.get(audio_url)
+            if audio_response.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to download audio file")
+
+            # Lưu file âm thanh vào đường dẫn xác định
+            with open(section_cloned_file_path, "wb") as audio_file:
+                audio_file.write(audio_response.content)
+
         except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error generating audio: {str(e)}"
-            )
-
-        # try:
-        #     tts = gTTS(text=text, lang=locate)
-
-        #     await asyncio.to_thread(tts.save, audio_file_path)
-        # except Exception as e:
-        #     raise HTTPException(
-        #         status_code=500, detail=f"Error generating audio: {str(e)}"
-        #     )
+            raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
 
         output_audio_path = os.path.join(
             section_storage_path, f"{section_id}_processed.wav"
@@ -657,33 +671,45 @@ async def text_file_to_speech_and_infer(
         # Tạo tên file âm thanh ngẫu nhiên
         section_id = str(uuid.uuid4())
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
-        try:
-            speech_config = speechsdk.SpeechConfig(subscription=api_key, region=region)
-            speech_config.speech_synthesis_voice_name = "vi-VN-" + locate
-
-            # Tạo một đối tượng Speech Synthesizer
-            audio_config = speechsdk.audio.AudioOutputConfig(
-                filename=section_cloned_file_path
-            )
-            synthesizer = speechsdk.SpeechSynthesizer(
-                speech_config=speech_config, audio_config=audio_config
-            )
-
-            result = synthesizer.speak_text_async(text).get()
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error generating audio: {str(e)}"
-            )
 
         # Chuyển đổi văn bản thành giọng nói
-        # try:
-        #     tts = gTTS(text=text, lang=locate)
-        #     # Lưu file âm thanh trong một luồng riêng biệt
-        #     await asyncio.to_thread(tts.save, audio_file_path)
-        # except Exception as e:
-        #     raise HTTPException(
-        #         status_code=500, detail=f"Error generating audio: {str(e)}"
-        #     )
+        try:
+            url = "https://api.fpt.ai/hmi/tts/v5"
+
+            payload = text
+            headers = {
+                "api-key": "Y2E0zLaBD30uOXjqrDaakUkHTGzA9vS3",
+                "speed": "0",
+                "voice": "leminh",
+            }
+
+            response = requests.request(
+                "POST", url, data=payload.encode("utf-8"), headers=headers
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="FPT AI TTS API call failed")
+
+            result = response.json()
+
+            # Kiểm tra nếu có lỗi
+            if result["error"] != 0:
+                raise HTTPException(status_code=500, detail="Error from FPT AI API")
+
+            # Lấy liên kết tải xuống file âm thanh
+            audio_url = result["async"]
+
+            # Tải file âm thanh từ liên kết
+            audio_response = requests.get(audio_url)
+            if audio_response.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to download audio file")
+
+            # Lưu file âm thanh vào đường dẫn xác định
+            with open(section_cloned_file_path, "wb") as audio_file:
+                audio_file.write(audio_response.content)
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
 
         output_audio_path = os.path.join(
             section_storage_path, f"{section_id}_processed.wav"
@@ -731,6 +757,7 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
 
     os.makedirs(section_storage_path, exist_ok=True)
     os.makedirs(train_model_path, exist_ok=True)
+
     # Kiểm tra thông tin mô hình trong cơ sở dữ liệu
     try:
         model_doc = db_firestore.collection("models").document(str(model_id)).get()
@@ -750,29 +777,45 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
     section_id = str(uuid.uuid4())
     section_cloned_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
-    # Sử dụng gTTS để chuyển đổi văn bản thành giọng nói
-    # try:
-    #     tts = gTTS(text=text, lang=locate)
-
-    #     await asyncio.to_thread(tts.save, section_cloned_file_path)
-    # except Exception as e:
-    #     raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
+    # Sử dụng API của FPT AI để chuyển văn bản thành giọng nói
     try:
+        url = "https://api.fpt.ai/hmi/tts/v5"
 
-        speech_config = speechsdk.SpeechConfig(subscription=api_key, region=region)
-        speech_config.speech_synthesis_voice_name = "vi-VN-" + locate
+        payload = text
+        headers = {
+            "api-key": "Y2E0zLaBD30uOXjqrDaakUkHTGzA9vS3",
+            "speed": "0",
+            "voice": "leminh",
+        }
 
-        # Tạo một đối tượng Speech Synthesizer
-        audio_config = speechsdk.audio.AudioOutputConfig(
-            filename=section_cloned_file_path
+        response = requests.request(
+            "POST", url, data=payload.encode("utf-8"), headers=headers
         )
-        synthesizer = speechsdk.SpeechSynthesizer(
-            speech_config=speech_config, audio_config=audio_config
-        )
 
-        result = synthesizer.speak_text_async(text).get()
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail="FPT AI TTS API call failed")
+
+        result = response.json()
+
+        # Kiểm tra nếu có lỗi
+        if result["error"] != 0:
+            raise HTTPException(status_code=500, detail="Error from FPT AI API")
+
+        # Lấy liên kết tải xuống file âm thanh
+        audio_url = result["async"]
+
+        # Tải file âm thanh từ liên kết
+        audio_response = requests.get(audio_url)
+        if audio_response.status_code != 200:
+            raise HTTPException(status_code=500, detail="Failed to download audio file")
+
+        # Lưu file âm thanh vào đường dẫn xác định
+        with open(section_cloned_file_path, "wb") as audio_file:
+            audio_file.write(audio_response.content)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
+
     # Gọi hàm infer để xử lý âm thanh
     output_audio_path = os.path.join(
         section_storage_path, f"{section_id}_processed.wav"
@@ -866,6 +909,7 @@ async def process_audio(
     file: UploadFile = File(...),
     f0_method: str = Form(...),
     epochs_number: str = Form(...),
+    user_id: str = Form(...),
 ):
     # Tạo thư mục tạm để lưu file âm thanh
     suid = str(uuid.uuid4())[:8]
@@ -952,6 +996,7 @@ async def process_audio(
             "config_path": config_path_relative,
             "cluster_model_path": "None",
             "category": "user_train",
+            "user_id": user_id,
         }
         model_ref.set(model_data)
         return {
@@ -967,6 +1012,7 @@ async def process_audio_zip(
     file: UploadFile = File(...),
     f0_method: str = Form(...),
     epochs_number: str = Form(...),
+    user_id: str = Form(...),
 ):
 
     suid = str(uuid.uuid4())[:8]
@@ -1038,6 +1084,7 @@ async def process_audio_zip(
                 "config_path": config_path_relative,
                 "cluster_model_path": "None",
                 "category": "user_train",
+                "user_id": user_id,
             }
             model_ref.set(model_data)
             return {
@@ -1100,6 +1147,7 @@ async def process_audio_zip(
                 "config_path": config_path_relative,
                 "cluster_model_path": "None",
                 "category": "user_train",
+                "user_id": user_id,
             }
             model_ref.set(model_data)
             return {
