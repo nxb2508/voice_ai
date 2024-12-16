@@ -154,10 +154,10 @@ def update_config(file_path, epochs_number):
         config = json.load(file)
 
     config["train"]["epochs"] = epochs_number
-    config["train"]["batch_size"] = 16
+    config["train"]["batch_size"] = 4
     config["train"]["log_interval"] = 200
     config["train"]["eval_interval"] = 400
-    config["train"]["learning_rate"] = 0.00015
+    config["train"]["learning_rate"] = 0.0001
 
     with open(file_path, "w") as file:
         json.dump(config, file, indent=4)
@@ -574,42 +574,18 @@ async def text_file_to_speech_and_infer(
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
         try:
-            url = "https://api.fpt.ai/hmi/tts/v5"
-
-            payload = text
-            headers = {
-                "api-key": "Y2E0zLaBD30uOXjqrDaakUkHTGzA9vS3",
-                "speed": "0",
-                "voice": "leminh",
-            }
-
-            response = requests.request(
-                "POST", url, data=payload.encode("utf-8"), headers=headers
+            tts = gTTS(text=text, lang=locate)
+            await asyncio.to_thread(tts.save, audio_file_path)
+            # print(f"File âm thanh đã được lưu tại: {audio_file_path}")
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Error generating audio: {str(e)}"
             )
 
-            if response.status_code != 200:
-                raise HTTPException(status_code=500, detail="FPT AI TTS API call failed")
-
-            result = response.json()
-
-            # Kiểm tra nếu có lỗi
-            if result["error"] != 0:
-                raise HTTPException(status_code=500, detail="Error from FPT AI API")
-
-            # Lấy liên kết tải xuống file âm thanh
-            audio_url = result["async"]
-
-            # Tải file âm thanh từ liên kết
-            audio_response = requests.get(audio_url)
-            if audio_response.status_code != 200:
-                raise HTTPException(status_code=500, detail="Failed to download audio file")
-
-            # Lưu file âm thanh vào đường dẫn xác định
-            with open(section_cloned_file_path, "wb") as audio_file:
-                audio_file.write(audio_response.content)
-
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Error generating audio: {str(e)}"
+            )
 
         output_audio_path = os.path.join(
             section_storage_path, f"{section_id}_processed.wav"
@@ -674,42 +650,13 @@ async def text_file_to_speech_and_infer(
 
         # Chuyển đổi văn bản thành giọng nói
         try:
-            url = "https://api.fpt.ai/hmi/tts/v5"
-
-            payload = text
-            headers = {
-                "api-key": "Y2E0zLaBD30uOXjqrDaakUkHTGzA9vS3",
-                "speed": "0",
-                "voice": "leminh",
-            }
-
-            response = requests.request(
-                "POST", url, data=payload.encode("utf-8"), headers=headers
-            )
-
-            if response.status_code != 200:
-                raise HTTPException(status_code=500, detail="FPT AI TTS API call failed")
-
-            result = response.json()
-
-            # Kiểm tra nếu có lỗi
-            if result["error"] != 0:
-                raise HTTPException(status_code=500, detail="Error from FPT AI API")
-
-            # Lấy liên kết tải xuống file âm thanh
-            audio_url = result["async"]
-
-            # Tải file âm thanh từ liên kết
-            audio_response = requests.get(audio_url)
-            if audio_response.status_code != 200:
-                raise HTTPException(status_code=500, detail="Failed to download audio file")
-
-            # Lưu file âm thanh vào đường dẫn xác định
-            with open(section_cloned_file_path, "wb") as audio_file:
-                audio_file.write(audio_response.content)
-
+            tts = gTTS(text=text, lang=locate)
+            await asyncio.to_thread(tts.save, audio_file_path)
+            # print(f"File âm thanh đã được lưu tại: {audio_file_path}")
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Error generating audio: {str(e)}"
+            )
 
         output_audio_path = os.path.join(
             section_storage_path, f"{section_id}_processed.wav"
@@ -779,40 +726,9 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
 
     # Sử dụng API của FPT AI để chuyển văn bản thành giọng nói
     try:
-        url = "https://api.fpt.ai/hmi/tts/v5"
-
-        payload = text
-        headers = {
-            "api-key": "Y2E0zLaBD30uOXjqrDaakUkHTGzA9vS3",
-            "speed": "0",
-            "voice": "leminh",
-        }
-
-        response = requests.request(
-            "POST", url, data=payload.encode("utf-8"), headers=headers
-        )
-
-        if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="FPT AI TTS API call failed")
-
-        result = response.json()
-
-        # Kiểm tra nếu có lỗi
-        if result["error"] != 0:
-            raise HTTPException(status_code=500, detail="Error from FPT AI API")
-
-        # Lấy liên kết tải xuống file âm thanh
-        audio_url = result["async"]
-
-        # Tải file âm thanh từ liên kết
-        audio_response = requests.get(audio_url)
-        if audio_response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Failed to download audio file")
-
-        # Lưu file âm thanh vào đường dẫn xác định
-        with open(section_cloned_file_path, "wb") as audio_file:
-            audio_file.write(audio_response.content)
-
+        tts = gTTS(text=text, lang=locate)
+        await asyncio.to_thread(tts.save, audio_file_path)
+        # print(f"File âm thanh đã được lưu tại: {audio_file_path}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
 
