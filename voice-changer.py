@@ -109,7 +109,7 @@ class TextToSpeechRequest(BaseModel):
 
 class TextToSpeechAndInferRequest(BaseModel):
     text: str
-    locate: str = "vi"
+    locate: str = "en"
     model_id: str
 
 
@@ -202,10 +202,8 @@ def process_audio_files(
     input_path = Path(input_dir)
     output_path = Path(output_dir)
 
-    # Tạo thư mục output nếu chưa tồn tại
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Gọi hàm preprocess_resample để xử lý các tệp âm thanh
     preprocess_resample(
         input_dir=input_path,
         output_dir=output_path,
@@ -278,8 +276,7 @@ def train(
         url = tb.launch()
         webbrowser.open(url)
 
-    # Gọi hàm huấn luyện thực tế từ module khác, nếu cần
-    from so_vits_svc_fork.train import train  # Chỉ gọi một lần từ đây
+    from so_vits_svc_fork.train import train
 
     train(
         config_path=config_path, model_path=model_path, reset_optimizer=reset_optimizer
@@ -624,11 +621,11 @@ async def text_file_to_speech_and_infer(
     elif file.filename.endswith(".docx"):
         os.makedirs(section_storage_path, exist_ok=True)
         os.makedirs(train_model_path, exist_ok=True)
-        # Đọc nội dung từ tệp Word
+
         content = await file.read()
         doc = Document(io.BytesIO(content))
         text = "\n".join([para.text for para in doc.paragraphs])
-        # Lấy model_path và config_path từ cơ sở dữ liệu
+
         try:
             model_doc = db_firestore.collection("models").document(str(model_id)).get()
             if not model_doc.exists:
@@ -644,11 +641,9 @@ async def text_file_to_speech_and_infer(
         config_path = BASE_DIR / model_info["config_path"]
         cluster_model_path = BASE_DIR / model_info["cluster_model_path"]
 
-        # Tạo tên file âm thanh ngẫu nhiên
         section_id = str(uuid.uuid4())
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
-        # Chuyển đổi văn bản thành giọng nói
         try:
             tts = gTTS(text=text, lang=locate)
             await asyncio.to_thread(tts.save, audio_file_path)
@@ -662,7 +657,6 @@ async def text_file_to_speech_and_infer(
             section_storage_path, f"{section_id}_processed.wav"
         )
 
-        # Gọi hàm infer với file âm thanh vừa tạo ra
         try:
             await asyncio.to_thread(
                 infer,
@@ -705,7 +699,6 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
     os.makedirs(section_storage_path, exist_ok=True)
     os.makedirs(train_model_path, exist_ok=True)
 
-    # Kiểm tra thông tin mô hình trong cơ sở dữ liệu
     try:
         model_doc = db_firestore.collection("models").document(str(model_id)).get()
         if not model_doc.exists:
@@ -715,16 +708,13 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi lấy thông tin model: {e}")
 
-    # Lấy thông tin đường dẫn mô hình và cấu hình từ cơ sở dữ liệu
     model_path = BASE_DIR / model_info["model_path"]
     config_path = BASE_DIR / model_info["config_path"]
     cluster_model_path = BASE_DIR / model_info["cluster_model_path"]
 
-    # Tạo tên file ngẫu nhiên
     section_id = str(uuid.uuid4())
     section_cloned_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
-    # Sử dụng API của FPT AI để chuyển văn bản thành giọng nói
     try:
         tts = gTTS(text=text, lang=locate)
         await asyncio.to_thread(tts.save, audio_file_path)
@@ -732,7 +722,6 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
 
-    # Gọi hàm infer để xử lý âm thanh
     output_audio_path = os.path.join(
         section_storage_path, f"{section_id}_processed.wav"
     )
@@ -770,7 +759,6 @@ async def upload_and_infer(
     model_id: str = Form(...),
 ):
 
-    # Kiểm tra thông tin mô hình trong cơ sở dữ liệu
     try:
         model_doc = db_firestore.collection("models").document(str(model_id)).get()
         if not model_doc.exists:
@@ -789,12 +777,11 @@ async def upload_and_infer(
     output_file_path = os.path.join(section_storage_path, f"{output_id}_processed.wav")
 
     cluster_model_path = BASE_DIR / model_info["cluster_model_path"]
-    # Lưu tệp âm thanh được tải lên bằng aiofiles
+
     async with aiofiles.open(input_file_path, "wb") as buffer:
         content = await file.read()
         await buffer.write(content)
 
-    # Gọi hàm infer để xử lý âm thanh
     await asyncio.to_thread(
         infer,
         input_path=input_file_path,
@@ -841,13 +828,11 @@ async def process_audio(
 
     temp_file_path = Path(input_dir) / file.filename
 
-    # Lưu tệp âm thanh vào thư mục
     if not os.path.exists(input_dir):
         os.makedirs(input_dir)
 
     await save_uploaded_file(file.file, temp_file_path)
 
-    # Chạy lần lượt các hàm xử lý
     try:
 
         # Bước 1: Pre-split
@@ -903,7 +888,7 @@ async def process_audio(
             Path(latest_model_path).relative_to(BASE_DIR).as_posix()
         )
 
-        # Lưu thông tin model vào Firestore
+        # Lưu thông tin model
         model_id = str(uuid.uuid4())
         model_ref = db_firestore.collection("models").document(model_id)
         model_data = {
@@ -943,11 +928,10 @@ async def process_audio_zip(
 
     temp_file_path = Path(input_dir) / file.filename
 
-    # Lưu tệp được tải lên
     await save_uploaded_file(file.file, temp_file_path)
 
     try:
-        # Nếu file là .rar, giải nén
+
         if file.filename.endswith(".zip"):
             with zipfile.ZipFile(temp_file_path, "r") as zip_ref:
                 zip_ref.extractall(output_split)
@@ -1007,7 +991,7 @@ async def process_audio_zip(
                 "message": "Audio processing completed successfully!",
             }
         else:
-            # Gọi các hàm xử lý tiếp theo với danh sách audio_files
+            # Gọi các hàm xử lý
             await asyncio.to_thread(
                 pre_split,
                 input_dir=input_dir,
