@@ -59,7 +59,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 executor = ThreadPoolExecutor(max_workers=20)
-# Tạo FastAPI app
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -70,7 +69,6 @@ app.add_middleware(
 )
 
 
-# Định nghĩa schema cho phản hồi
 class ModelResponse(BaseModel):
     id_model: str = None
     model_name: str
@@ -190,7 +188,7 @@ def pre_split(
     )
 
 
-def process_audio_files(
+def pre_resample(
     input_dir: str,
     output_dir: str,
     sampling_rate: int = 44100,
@@ -545,7 +543,7 @@ async def text_file_to_speech_and_infer(
     model_id: str = Form(...),
 ):
     if file.filename.endswith(".txt"):
-        # Đọc nội dung từ tệp văn bản
+
         os.makedirs(section_storage_path, exist_ok=True)
         os.makedirs(train_model_path, exist_ok=True)
 
@@ -588,7 +586,6 @@ async def text_file_to_speech_and_infer(
             section_storage_path, f"{section_id}_processed.wav"
         )
 
-        # Gọi hàm infer với file âm thanh vừa tạo ra
         try:
             await asyncio.to_thread(
                 infer,
@@ -717,7 +714,7 @@ async def text_to_speech_and_process(request: TextToSpeechAndInferRequest):
 
     try:
         tts = gTTS(text=text, lang=locate)
-        await asyncio.to_thread(tts.save, audio_file_path)
+        await asyncio.to_thread(tts.save, section_cloned_file_path)
         # print(f"File âm thanh đã được lưu tại: {audio_file_path}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
@@ -814,7 +811,7 @@ async def process_audio(
     epochs_number: str = Form(...),
     user_id: str = Form(...),
 ):
-    # Tạo thư mục tạm để lưu file âm thanh
+
     suid = str(uuid.uuid4())[:8]
     file_name = file_name = name + "_" + epochs_number + "_" + suid
     input_dir = BASE_DIR / f"audio_data/{file_name}"
@@ -842,9 +839,9 @@ async def process_audio(
             output_dir=os.path.join(output_dir, f"dataset_raw/{name}"),
             sr=44100,
         )
-        # Bước 2: Process Audio Files
+        # Bước 2: Pre-resample
         await asyncio.to_thread(
-            process_audio_files,
+            pre_resample,
             input_dir=output_split,
             output_dir=input_train,
             sampling_rate=44100,
@@ -937,7 +934,7 @@ async def process_audio_zip(
                 zip_ref.extractall(output_split)
 
             await asyncio.to_thread(
-                process_audio_files,
+                pre_resample,
                 input_dir=output_split,
                 output_dir=input_train,
                 sampling_rate=44100,
@@ -999,7 +996,7 @@ async def process_audio_zip(
                 sr=44100,
             )
             await asyncio.to_thread(
-                process_audio_files,
+                pre_resample,
                 input_dir=output_split,
                 output_dir=input_train,
                 sampling_rate=44100,
@@ -1072,7 +1069,7 @@ async def process_audio(
         model_dir = os.path.join(output_dir, "logs/44k")
         config_type = "so-vits-svc-4.0v1"
         await asyncio.to_thread(
-            process_audio_files,
+            pre_resample,
             input_dir=output_split,
             output_dir=input_train,
             sampling_rate=44100,
