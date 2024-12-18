@@ -884,7 +884,7 @@ async def process_audio(
             "model_path": latest_model_path_relative,
             "config_path": config_path_relative,
             "cluster_model_path": "None",
-            "category": "my_model",
+            "category": "1",
             "user_id": user_id,
         }
         model_ref.set(model_data)
@@ -971,7 +971,7 @@ async def process_audio_zip(
                 "model_path": latest_model_path_relative,
                 "config_path": config_path_relative,
                 "cluster_model_path": "None",
-                "category": "my_model",
+                "category": "1",
                 "user_id": user_id,
             }
             model_ref.set(model_data)
@@ -1034,7 +1034,7 @@ async def process_audio_zip(
                 "model_path": latest_model_path_relative,
                 "config_path": config_path_relative,
                 "cluster_model_path": "None",
-                "category": "my_model",
+                "category": "1",
                 "user_id": user_id,
             }
             model_ref.set(model_data)
@@ -1102,7 +1102,7 @@ async def process_audio(
             "model_path": latest_model_path_relative,
             "config_path": config_path_relative,
             "cluster_model_path": "None",
-            "category": "my_model",
+            "category": "1",
         }
         if doc.exists:
             model_ref.update(model_data)
