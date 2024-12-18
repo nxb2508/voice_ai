@@ -386,7 +386,7 @@ async def update_model(model_id: str, update_data: UpdateModelRequest):
 @app.delete("/models/{model_id}")
 async def delete_model(model_id: str):
     try:
-        
+
         output_dir = BASE_DIR / f"trainmodel"
         model_doc = db_firestore.collection("models").document(str(model_id)).get()
         if not model_doc.exists:
@@ -395,17 +395,14 @@ async def delete_model(model_id: str):
         model_data = model_doc.to_dict()
         model_name = model_data.get("model_name")
 
-        
         model_folder_path = os.path.join(output_dir, model_name)
 
-        
         if os.path.exists(model_folder_path):
             shutil.rmtree(model_folder_path)
             logger.info(f"Đã xóa thư mục: {model_folder_path}")
         else:
             logger.warning(f"Thư mục không tồn tại: {model_folder_path}")
 
-        
         db_firestore.collection("models").document(str(model_id)).delete()
         return {"message": "Xóa model thành công."}
 
@@ -418,7 +415,7 @@ async def delete_model(model_id: str):
 async def cleanup_model_files(model_id: str):
     try:
         output_dir = BASE_DIR / f"trainmodel"
-        
+
         model_doc = db_firestore.collection("models").document(str(model_id)).get()
         if not model_doc.exists:
             raise HTTPException(status_code=404, detail="Model không tồn tại.")
@@ -478,7 +475,6 @@ async def text_to_speech(request: TextToSpeechRequest):
     section_id = str(uuid.uuid4())
     audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
-    
     try:
         tts = gTTS(text=text, lang=locate)
         await asyncio.to_thread(tts.save, audio_file_path)
@@ -493,13 +489,12 @@ async def text_file_to_speech(
     locate: str = Form("vi"),
 ):
     if file.filename.endswith(".txt"):
-       
+
         content = await file.read()
-        text = content.decode("utf-8")  
+        text = content.decode("utf-8")
         section_id = str(uuid.uuid4())
         audio_file_path = os.path.join(section_storage_path, section_id + ".wav")
 
-       
         try:
             tts = gTTS(text=text, lang=locate)
             await asyncio.to_thread(tts.save, audio_file_path)
@@ -513,7 +508,7 @@ async def text_file_to_speech(
             audio_file_path, media_type="audio/wav", filename="output.wav"
         )
     elif file.filename.endswith(".docx"):
-        
+
         content = await file.read()
         doc = Document(io.BytesIO(content))
         text = "\n".join([para.text for para in doc.paragraphs])
@@ -832,14 +827,13 @@ async def process_audio(
 
     try:
 
-        
         await asyncio.to_thread(
             pre_split,
             input_dir=input_dir,
             output_dir=os.path.join(output_dir, f"dataset_raw/{name}"),
             sr=44100,
         )
-        
+
         await asyncio.to_thread(
             pre_resample,
             input_dir=output_split,
@@ -847,7 +841,6 @@ async def process_audio(
             sampling_rate=44100,
         )
 
-        
         config_dir = os.path.join(output_dir, "configs/44k/config.json")
         filelist_dir = os.path.join(output_dir, "filelists/44k")
         config_type = "so-vits-svc-4.0v1"
@@ -860,7 +853,7 @@ async def process_audio(
         )
         epochs_number = int(epochs_number)
         update_config(config_dir, epochs_number)
-       
+
         await asyncio.to_thread(
             pre_hubert,
             input_dir=input_train,
@@ -870,7 +863,6 @@ async def process_audio(
             f0_method=f0_method,
         )
 
-        
         model_dir = os.path.join(output_dir, "logs/44k")
         await asyncio.to_thread(
             train,
@@ -885,7 +877,6 @@ async def process_audio(
             Path(latest_model_path).relative_to(BASE_DIR).as_posix()
         )
 
-       
         model_id = str(uuid.uuid4())
         model_ref = db_firestore.collection("models").document(model_id)
         model_data = {
@@ -893,7 +884,7 @@ async def process_audio(
             "model_path": latest_model_path_relative,
             "config_path": config_path_relative,
             "cluster_model_path": "None",
-            "category": "user_train",
+            "category": "my_model",
             "user_id": user_id,
         }
         model_ref.set(model_data)
@@ -980,7 +971,7 @@ async def process_audio_zip(
                 "model_path": latest_model_path_relative,
                 "config_path": config_path_relative,
                 "cluster_model_path": "None",
-                "category": "user_train",
+                "category": "my_model",
                 "user_id": user_id,
             }
             model_ref.set(model_data)
@@ -988,7 +979,7 @@ async def process_audio_zip(
                 "message": "Audio processing completed successfully!",
             }
         else:
-            
+
             await asyncio.to_thread(
                 pre_split,
                 input_dir=input_dir,
@@ -1043,7 +1034,7 @@ async def process_audio_zip(
                 "model_path": latest_model_path_relative,
                 "config_path": config_path_relative,
                 "cluster_model_path": "None",
-                "category": "user_train",
+                "category": "my_model",
                 "user_id": user_id,
             }
             model_ref.set(model_data)
@@ -1111,7 +1102,7 @@ async def process_audio(
             "model_path": latest_model_path_relative,
             "config_path": config_path_relative,
             "cluster_model_path": "None",
-            "category": "user_train",
+            "category": "my_model",
         }
         if doc.exists:
             model_ref.update(model_data)
