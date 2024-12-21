@@ -71,6 +71,7 @@ app.add_middleware(
 
 class ModelResponse(BaseModel):
     id_model: str = None
+    name_model: str
     model_name: str
     model_path: str
     config_path: str
@@ -84,6 +85,7 @@ class ModelResponse(BaseModel):
 
 
 class ModelCreate(BaseModel):
+    name_model: str
     model_name: str
     model_path: str
     config_path: str
@@ -880,6 +882,7 @@ async def process_audio(
         model_id = str(uuid.uuid4())
         model_ref = db_firestore.collection("models").document(model_id)
         model_data = {
+            "name_model": name,
             "model_name": file_name,
             "model_path": latest_model_path_relative,
             "config_path": config_path_relative,
@@ -967,6 +970,7 @@ async def process_audio_zip(
             model_id = str(uuid.uuid4())
             model_ref = db_firestore.collection("models").document(model_id)
             model_data = {
+                "name_model": name,
                 "model_name": file_name,
                 "model_path": latest_model_path_relative,
                 "config_path": config_path_relative,
@@ -1030,6 +1034,7 @@ async def process_audio_zip(
             model_id = str(uuid.uuid4())
             model_ref = db_firestore.collection("models").document(model_id)
             model_data = {
+                "name_model": name,
                 "model_name": file_name,
                 "model_path": latest_model_path_relative,
                 "config_path": config_path_relative,
