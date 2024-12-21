@@ -10,19 +10,10 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, JSONResponse
-from pathlib import Path
-import tempfile
-from pydantic import BaseModel
-from typing import List, Optional, Literal
-from so_vits_svc_fork.inference.main import infer
-import os
 from fastapi.middleware.cors import CORSMiddleware
-import uuid
-from gtts import gTTS
-from docx import Document
-import io
-import logging
-from logging import getLogger
+import firebase_admin
+from firebase_admin import credentials, firestore
+from so_vits_svc_fork.inference.main import infer
 from so_vits_svc_fork.preprocessing.preprocess_split import preprocess_split
 from so_vits_svc_fork.preprocessing.preprocess_resample import preprocess_resample
 from so_vits_svc_fork.preprocessing.preprocess_flist_config import (
@@ -31,14 +22,23 @@ from so_vits_svc_fork.preprocessing.preprocess_flist_config import (
 )
 from so_vits_svc_fork.preprocessing.preprocess_hubert_f0 import preprocess_hubert_f0
 from so_vits_svc_fork.train import train
+import uvicorn
+from gtts import gTTS
+from pathlib import Path
+import tempfile
+from pydantic import BaseModel
+from typing import List, Optional, Literal
+import os
+import uuid
+from docx import Document
+import io
+import logging
+from logging import getLogger
 import shutil
 import shutil
 import asyncio
 import aiofiles
-import uvicorn
 import re
-import firebase_admin
-from firebase_admin import credentials, firestore
 from concurrent.futures import ThreadPoolExecutor
 import json
 import zipfile
