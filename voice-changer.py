@@ -35,7 +35,6 @@ import io
 import logging
 from logging import getLogger
 import shutil
-import shutil
 import asyncio
 import aiofiles
 import re
@@ -43,6 +42,8 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import zipfile
 import requests
+from datetime import datetime
+
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -78,6 +79,8 @@ class ModelResponse(BaseModel):
     cluster_model_path: str
     category: str
     user_id: str
+    created_at: str
+    train_at: str
 
     class Config:
         from_attributes = True
@@ -92,6 +95,8 @@ class ModelCreate(BaseModel):
     cluster_model_path: str
     category: str
     user_id: str
+    created_at: str
+    train_at: str
 
 
 class UpdateModelRequest(BaseModel):
@@ -111,6 +116,10 @@ class TextToSpeechAndInferRequest(BaseModel):
     text: str
     locate: str = "en"
     model_id: str
+
+
+def get_current_time():
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def check_directory_exists(folder_path: Path, subdir_name: str) -> bool:
@@ -294,6 +303,7 @@ async def get_models():
             data = doc.to_dict()
             model = ModelResponse(
                 id_model=doc.id,
+                name_model=data["name_model", ""],
                 model_name=data["model_name"],
                 model_path=data["model_path"],
                 config_path=data["config_path"],
@@ -807,6 +817,7 @@ async def process_audio(
     f0_method: str = Form(...),
     epochs_number: str = Form(...),
     user_id: str = Form(...),
+    trainAt: str = Form(...),
 ):
 
     suid = str(uuid.uuid4())[:8]
@@ -878,7 +889,7 @@ async def process_audio(
         latest_model_path_relative = (
             Path(latest_model_path).relative_to(BASE_DIR).as_posix()
         )
-
+        created_at = get_current_time
         model_id = str(uuid.uuid4())
         model_ref = db_firestore.collection("models").document(model_id)
         model_data = {
@@ -889,6 +900,8 @@ async def process_audio(
             "cluster_model_path": "None",
             "category": "1",
             "user_id": user_id,
+            "created_at": created_at,
+            "train_at": trainAt,
         }
         model_ref.set(model_data)
         return {
@@ -905,6 +918,7 @@ async def process_audio_zip(
     f0_method: str = Form(...),
     epochs_number: str = Form(...),
     user_id: str = Form(...),
+    trainAt: str = Form(...),
 ):
 
     suid = str(uuid.uuid4())[:8]
@@ -966,7 +980,7 @@ async def process_audio_zip(
             latest_model_path_relative = (
                 Path(latest_model_path).relative_to(BASE_DIR).as_posix()
             )
-
+            created_at = get_current_time
             model_id = str(uuid.uuid4())
             model_ref = db_firestore.collection("models").document(model_id)
             model_data = {
@@ -977,13 +991,14 @@ async def process_audio_zip(
                 "cluster_model_path": "None",
                 "category": "1",
                 "user_id": user_id,
+                "created_at": created_at,
+                "train_at": trainAt,
             }
             model_ref.set(model_data)
             return {
                 "message": "Audio processing completed successfully!",
             }
         else:
-
             await asyncio.to_thread(
                 pre_split,
                 input_dir=input_dir,
@@ -1030,7 +1045,7 @@ async def process_audio_zip(
             latest_model_path_relative = (
                 Path(latest_model_path).relative_to(BASE_DIR).as_posix()
             )
-
+            created_at = get_current_time
             model_id = str(uuid.uuid4())
             model_ref = db_firestore.collection("models").document(model_id)
             model_data = {
@@ -1041,6 +1056,8 @@ async def process_audio_zip(
                 "cluster_model_path": "None",
                 "category": "1",
                 "user_id": user_id,
+                "created_at": created_at,
+                "train_at": trainAt,
             }
             model_ref.set(model_data)
             return {
