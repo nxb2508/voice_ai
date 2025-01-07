@@ -8,6 +8,7 @@ from fastapi import (
     Depends,
     Query,
     status,
+    BackgroundTasks,
 )
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -292,106 +293,80 @@ def train(
     )
 
 
-@app.get("/models", response_model=List[ModelResponse])
-async def get_models():
+def train_and_save_model(
+    name,
+    file_name,
+    input_dir,
+    output_dir,
+    input_train,
+    output_split,
+    f0_method,
+    epochs_number,
+    user_id,
+    trainAt,
+):
     try:
-        models_ref = db_firestore.collection("models")
-        docs = models_ref.stream()
 
-        models = []
-        for doc in docs:
-            data = doc.to_dict()
-            model = ModelResponse(
-                id_model=doc.id,
-                name_model=data["name_model", ""],
-                model_name=data["model_name"],
-                model_path=data["model_path"],
-                config_path=data["config_path"],
-                cluster_model_path=data.get("cluster_model_path", ""),
-                category=data.get("category", ""),
-                user_id=data.get("user_id", ""),
-            )
-            models.append(model)
-
-        return models
-    except Exception as e:
-        logger.error(f"Lỗi khi lấy models: {e}")
-        raise HTTPException(status_code=500, detail="Không thể lấy danh sách models.")
-
-
-# Thêm model
-@app.post("/models/", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
-async def create_model(model: ModelCreate):
-
-    model_id = str(uuid.uuid4())
-
-    model_ref = db_firestore.collection("models").document(model_id)
-    model_ref.set(
-        {
-            "model_name": model.model_name,
-            "model_path": model.model_path,
-            "config_path": model.config_path,
-            "cluster_model_path": model.cluster_model_path,
-            "category": model.category,
-        }
-    )
-
-    return ModelResponse(
-        id_model=model_id,
-        model_name=model.model_name,
-        model_path=model.model_path,
-        config_path=model.config_path,
-        cluster_model_path=model.cluster_model_path,
-        category=model.category,
-    )
-
-
-@app.get("/models/{model_id}", response_model=ModelResponse)
-async def get_model(model_id: str):
-    try:
-        model_ref = db_firestore.collection("models").document(model_id)
-        doc = model_ref.get()
-
-        if not doc.exists:
-            raise HTTPException(status_code=404, detail="Model không tồn tại")
-        data = doc.to_dict()
-
-        model = ModelResponse(
-            id_model=doc.id,
-            model_name=data["model_name"],
-            model_path=data["model_path"],
-            config_path=data["config_path"],
-            cluster_model_path=data.get("cluster_model_path", ""),
-            category=data.get("category", ""),
+        pre_split(
+            input_dir=input_dir,
+            output_dir=os.path.join(output_dir, f"dataset_raw/{name}"),
+            sr=44100,
+        )
+        pre_resample(
+            input_dir=output_split, output_dir=input_train, sampling_rate=44100
         )
 
-        return model
-    except Exception as e:
-        logger.error(f"Lỗi khi lấy model {model_id}: {e}")
-        raise HTTPException(status_code=500, detail="Không thể lấy model")
+        config_dir = os.path.join(output_dir, "configs/44k/config.json")
+        filelist_dir = os.path.join(output_dir, "filelists/44k")
+        config_type = "so-vits-svc-4.0v1"
+        pre_config(
+            input_dir=input_train,
+            filelist_path=filelist_dir,
+            config_path=config_dir,
+            config_type=config_type,
+        )
 
+        update_config(config_dir, epochs_number)
+        pre_hubert(
+            input_dir=input_train,
+            config_path=config_dir,
+            n_jobs=None,
+            force_rebuild=True,
+            f0_method=f0_method,
+        )
 
-@app.put("/models/{model_id}", response_model=dict)
-async def update_model(model_id: str, update_data: UpdateModelRequest):
-    try:
+        model_dir = os.path.join(output_dir, "logs/44k")
+        train(
+            config_path=config_dir,
+            model_path=model_dir,
+            tensorboard=False,
+            reset_optimizer=False,
+        )
 
+        latest_model_path = get_latest_model_path(model_dir)
+        config_path_relative = Path(config_dir).relative_to(BASE_DIR).as_posix()
+        latest_model_path_relative = (
+            Path(latest_model_path).relative_to(BASE_DIR).as_posix()
+        )
+
+        created_at = get_current_time()
+        model_id = str(uuid.uuid4())
         model_ref = db_firestore.collection("models").document(model_id)
-
-        if not model_ref.get().exists:
-            raise HTTPException(status_code=404, detail="Model không tồn tại")
-
-        update_dict = {
-            key: value for key, value in update_data.dict().items() if value is not None
+        model_data = {
+            "name_model": name,
+            "model_name": file_name,
+            "model_path": latest_model_path_relative,
+            "config_path": config_path_relative,
+            "cluster_model_path": "None",
+            "category": "1",
+            "user_id": user_id,
+            "created_at": created_at,
+            "train_at": trainAt,
         }
+        model_ref.set(model_data)
 
-        model_ref.update(update_dict)
-
-        return {"message": f"Model {model_id} được cập nhật thành công"}
-    except HTTPException as http_err:
-        raise http_err
     except Exception as e:
-        logger.error(f"Lỗi khi cập nhật model {model_id}: {e}")
-        raise HTTPException(status_code=500, detail="Không thể cập nhật model")
+        print(f"Error during training: {e}")
 
 
 # Xóa một model theo ID
@@ -810,105 +785,105 @@ async def upload_and_infer(
     return FileResponse(output_file_path, media_type="audio/wav", filename="output.wav")
 
 
-@app.post("/train-model/")
-async def process_audio(
-    name: str = Form(...),
-    file: UploadFile = File(...),
-    f0_method: str = Form(...),
-    epochs_number: str = Form(...),
-    user_id: str = Form(...),
-    trainAt: str = Form(...),
-):
+# @app.post("/train-model/")
+# async def process_audio(
+#     name: str = Form(...),
+#     file: UploadFile = File(...),
+#     f0_method: str = Form(...),
+#     epochs_number: str = Form(...),
+#     user_id: str = Form(...),
+#     trainAt: str = Form(...),
+# ):
 
-    suid = str(uuid.uuid4())[:8]
-    file_name = file_name = name + "_" + epochs_number + "_" + suid
-    input_dir = BASE_DIR / f"audio_data/{file_name}"
-    output_dir = BASE_DIR / f"trainmodel/{file_name}"
-    input_train = BASE_DIR / f"trainmodel/{file_name}/dataset/44k"
-    output_split = BASE_DIR / f"trainmodel/{file_name}/dataset_raw"
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    if not os.path.exists(input_dir):
-        os.makedirs(input_dir, exist_ok=True)
+#     suid = str(uuid.uuid4())[:8]
+#     file_name = file_name = name + "_" + epochs_number + "_" + suid
+#     input_dir = BASE_DIR / f"audio_data/{file_name}"
+#     output_dir = BASE_DIR / f"trainmodel/{file_name}"
+#     input_train = BASE_DIR / f"trainmodel/{file_name}/dataset/44k"
+#     output_split = BASE_DIR / f"trainmodel/{file_name}/dataset_raw"
+#     if not os.path.exists(output_dir):
+#         os.makedirs(output_dir)
+#     if not os.path.exists(input_dir):
+#         os.makedirs(input_dir, exist_ok=True)
 
-    temp_file_path = Path(input_dir) / file.filename
+#     temp_file_path = Path(input_dir) / file.filename
 
-    if not os.path.exists(input_dir):
-        os.makedirs(input_dir)
+#     if not os.path.exists(input_dir):
+#         os.makedirs(input_dir)
 
-    await save_uploaded_file(file.file, temp_file_path)
+#     await save_uploaded_file(file.file, temp_file_path)
 
-    try:
+#     try:
 
-        await asyncio.to_thread(
-            pre_split,
-            input_dir=input_dir,
-            output_dir=os.path.join(output_dir, f"dataset_raw/{name}"),
-            sr=44100,
-        )
+#         await asyncio.to_thread(
+#             pre_split,
+#             input_dir=input_dir,
+#             output_dir=os.path.join(output_dir, f"dataset_raw/{name}"),
+#             sr=44100,
+#         )
 
-        await asyncio.to_thread(
-            pre_resample,
-            input_dir=output_split,
-            output_dir=input_train,
-            sampling_rate=44100,
-        )
+#         await asyncio.to_thread(
+#             pre_resample,
+#             input_dir=output_split,
+#             output_dir=input_train,
+#             sampling_rate=44100,
+#         )
 
-        config_dir = os.path.join(output_dir, "configs/44k/config.json")
-        filelist_dir = os.path.join(output_dir, "filelists/44k")
-        config_type = "so-vits-svc-4.0v1"
-        await asyncio.to_thread(
-            pre_config,
-            input_dir=input_train,
-            filelist_path=filelist_dir,
-            config_path=config_dir,
-            config_type=config_type,
-        )
-        epochs_number = int(epochs_number)
-        update_config(config_dir, epochs_number)
+#         config_dir = os.path.join(output_dir, "configs/44k/config.json")
+#         filelist_dir = os.path.join(output_dir, "filelists/44k")
+#         config_type = "so-vits-svc-4.0v1"
+#         await asyncio.to_thread(
+#             pre_config,
+#             input_dir=input_train,
+#             filelist_path=filelist_dir,
+#             config_path=config_dir,
+#             config_type=config_type,
+#         )
+#         epochs_number = int(epochs_number)
+#         update_config(config_dir, epochs_number)
 
-        await asyncio.to_thread(
-            pre_hubert,
-            input_dir=input_train,
-            config_path=config_dir,
-            n_jobs=None,
-            force_rebuild=True,
-            f0_method=f0_method,
-        )
+#         await asyncio.to_thread(
+#             pre_hubert,
+#             input_dir=input_train,
+#             config_path=config_dir,
+#             n_jobs=None,
+#             force_rebuild=True,
+#             f0_method=f0_method,
+#         )
 
-        model_dir = os.path.join(output_dir, "logs/44k")
-        await asyncio.to_thread(
-            train,
-            config_path=config_dir,
-            model_path=model_dir,
-            tensorboard=False,
-            reset_optimizer=False,
-        )
-        latest_model_path = get_latest_model_path(model_dir)
-        config_path_relative = Path(config_dir).relative_to(BASE_DIR).as_posix()
-        latest_model_path_relative = (
-            Path(latest_model_path).relative_to(BASE_DIR).as_posix()
-        )
-        created_at = get_current_time
-        model_id = str(uuid.uuid4())
-        model_ref = db_firestore.collection("models").document(model_id)
-        model_data = {
-            "name_model": name,
-            "model_name": file_name,
-            "model_path": latest_model_path_relative,
-            "config_path": config_path_relative,
-            "cluster_model_path": "None",
-            "category": "1",
-            "user_id": user_id,
-            "created_at": created_at,
-            "train_at": trainAt,
-        }
-        model_ref.set(model_data)
-        return {
-            "message": "Audio processing completed successfully!",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#         model_dir = os.path.join(output_dir, "logs/44k")
+#         await asyncio.to_thread(
+#             train,
+#             config_path=config_dir,
+#             model_path=model_dir,
+#             tensorboard=False,
+#             reset_optimizer=False,
+#         )
+#         latest_model_path = get_latest_model_path(model_dir)
+#         config_path_relative = Path(config_dir).relative_to(BASE_DIR).as_posix()
+#         latest_model_path_relative = (
+#             Path(latest_model_path).relative_to(BASE_DIR).as_posix()
+#         )
+#         created_at = get_current_time
+#         model_id = str(uuid.uuid4())
+#         model_ref = db_firestore.collection("models").document(model_id)
+#         model_data = {
+#             "name_model": name,
+#             "model_name": file_name,
+#             "model_path": latest_model_path_relative,
+#             "config_path": config_path_relative,
+#             "cluster_model_path": "None",
+#             "category": "1",
+#             "user_id": user_id,
+#             "created_at": created_at,
+#             "train_at": trainAt,
+#         }
+#         model_ref.set(model_data)
+#         return {
+#             "message": "Audio processing completed successfully!",
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/train-model-file-zip/")
@@ -1067,72 +1042,46 @@ async def process_audio_zip(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/retrain-model/")
+@app.post("/train-model/")
 async def process_audio(
+    background_tasks: BackgroundTasks,
     name: str = Form(...),
+    file: UploadFile = File(...),
     f0_method: str = Form(...),
     epochs_number: str = Form(...),
+    user_id: str = Form(...),
+    trainAt: str = Form(...),
 ):
-    if check_directory_exists(BASE_DIR, name):
-        input_train = BASE_DIR / f"trainmodel/{name}/dataset/44k"
-        output_split = BASE_DIR / f"trainmodel/{name}/dataset_raw"
-        output_dir = BASE_DIR / f"trainmodel/{name}"
-        config_dir = os.path.join(output_dir, "configs/44k/config.json")
-        filelist_dir = os.path.join(output_dir, "filelists/44k")
-        model_dir = os.path.join(output_dir, "logs/44k")
-        config_type = "so-vits-svc-4.0v1"
-        await asyncio.to_thread(
-            pre_resample,
-            input_dir=output_split,
-            output_dir=input_train,
-            sampling_rate=44100,
-        )
-        await asyncio.to_thread(
-            pre_config,
-            input_dir=input_train,
-            filelist_path=filelist_dir,
-            config_path=config_dir,
-            config_type=config_type,
-        )
-        epochs_number = int(epochs_number)
-        update_config(config_dir, epochs_number)
-        await asyncio.to_thread(
-            pre_hubert,
-            input_dir=input_train,
-            config_path=config_dir,
-            n_jobs=None,
-            force_rebuild=True,
-            f0_method=f0_method,
-        )
-        await asyncio.to_thread(
-            train,
-            config_path=config_dir,
-            model_path=model_dir,
-            tensorboard=False,
-            reset_optimizer=True,
-        )
-        latest_model_path = get_latest_model_path(model_dir)
-        config_path_relative = Path(config_dir).relative_to(BASE_DIR).as_posix()
-        latest_model_path_relative = (
-            Path(latest_model_path).relative_to(BASE_DIR).as_posix()
-        )
+    suid = str(uuid.uuid4())[:8]
+    file_name = name + "_" + epochs_number + "_" + suid
+    input_dir = BASE_DIR / f"audio_data/{file_name}"
+    output_dir = BASE_DIR / f"trainmodel/{file_name}"
+    input_train = BASE_DIR / f"trainmodel/{file_name}/dataset/44k"
+    output_split = BASE_DIR / f"trainmodel/{file_name}/dataset_raw"
 
-        model_ref = db_firestore.collection("models").document(name)
-        doc = model_ref.get()
-        model_data = {
-            "model_name": name,
-            "model_path": latest_model_path_relative,
-            "config_path": config_path_relative,
-            "cluster_model_path": "None",
-            "category": "1",
-        }
-        if doc.exists:
-            model_ref.update(model_data)
-        else:
-            model_ref.set(model_data)
-        return {
-            "message": "Audio processing completed successfully!",
-        }
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    if not os.path.exists(input_dir):
+        os.makedirs(input_dir, exist_ok=True)
+
+    temp_file_path = Path(input_dir) / file.filename
+    await save_uploaded_file(file.file, temp_file_path)
+
+    background_tasks.add_task(
+        train_and_save_model,
+        name,
+        file_name,
+        input_dir,
+        output_dir,
+        input_train,
+        output_split,
+        f0_method,
+        int(epochs_number),
+        user_id,
+        trainAt,
+    )
+
+    return {"message": "Training started!"}
 
 
 if __name__ == "__main__":
