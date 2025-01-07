@@ -118,10 +118,6 @@ class TextToSpeechAndInferRequest(BaseModel):
     model_id: str
 
 
-def get_current_time():
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-
 def check_directory_exists(folder_path: Path, subdir_name: str) -> bool:
 
     target_dir = folder_path / "trainmodel" / subdir_name
@@ -787,7 +783,7 @@ async def process_audio(
         latest_model_path_relative = (
             Path(latest_model_path).relative_to(BASE_DIR).as_posix()
         )
-        created_at = get_current_time
+        created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         model_id = str(uuid.uuid4())
         model_ref = db_firestore.collection("models").document(model_id)
         model_data = {
@@ -878,7 +874,7 @@ async def process_audio_zip(
             latest_model_path_relative = (
                 Path(latest_model_path).relative_to(BASE_DIR).as_posix()
             )
-            created_at = get_current_time
+            created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             model_id = str(uuid.uuid4())
             model_ref = db_firestore.collection("models").document(model_id)
             model_data = {
@@ -943,7 +939,7 @@ async def process_audio_zip(
             latest_model_path_relative = (
                 Path(latest_model_path).relative_to(BASE_DIR).as_posix()
             )
-            created_at = get_current_time
+            created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             model_id = str(uuid.uuid4())
             model_ref = db_firestore.collection("models").document(model_id)
             model_data = {
