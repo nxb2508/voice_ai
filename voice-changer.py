@@ -164,7 +164,7 @@ def update_config(file_path, epochs_number):
         config = json.load(file)
 
     config["train"]["epochs"] = epochs_number
-    config["train"]["batch_size"] = 4
+    config["train"]["batch_size"] = 16
     config["train"]["log_interval"] = 200
     config["train"]["eval_interval"] = 400
     config["train"]["learning_rate"] = 0.0001
